@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Site Editor</title>
+<meta name="description" content="A visual editor for your team's website. Open your site, change it like a design file, and download the updated version.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23F05A28'/%3E%3Cpath d='M9 22h14M9 10h14M9 16h9' stroke='%231A1A1A' stroke-width='3'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="editor.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+</head>
+<body>
+
+<!-- Welcome screen -->
+<section id="welcome" class="welcome">
+  <div class="welcome-card">
+    <div class="brand"><span class="logo">Se</span><span>Site Editor</span></div>
+    <h1>Open your site to start editing</h1>
+    <p>Pick the folder your website lives in, or a ZIP of it. Nothing gets uploaded anywhere: everything stays in this browser until you download it.</p>
+    <div class="welcome-actions">
+      <label class="btn btn-primary btn-lg">Choose site folder<input id="openFolder" type="file" webkitdirectory multiple hidden></label>
+      <label class="btn btn-lg">Open a ZIP<input id="openZip" type="file" accept=".zip" hidden></label>
+    </div>
+    <button id="resumeBtn" class="btn btn-ghost" hidden>Continue where you left off</button>
+    <p id="welcomeError" class="error" role="alert" hidden></p>
+  </div>
+</section>
+
+<!-- App -->
+<div id="app" class="app" hidden>
+  <header class="menubar">
+    <span class="logo" aria-hidden="true">Se</span>
+    <nav class="menus" aria-label="Menu">
+      <div class="menu" data-menu="file"><button class="menu-btn">File</button>
+        <div class="menu-pop">
+          <button data-cmd="download">Download…<kbd>⌘S</kbd></button>
+          <button data-cmd="openAnother">Open another site…</button>
+        </div></div>
+      <div class="menu" data-menu="edit"><button class="menu-btn">Edit</button>
+        <div class="menu-pop">
+          <button data-cmd="undo">Undo<kbd>⌘Z</kbd></button>
+          <button data-cmd="redo">Redo<kbd>⇧⌘Z</kbd></button>
+          <hr>
+          <button data-cmd="duplicate">Duplicate<kbd>⌘D</kbd></button>
+          <button data-cmd="moveUp">Move up</button>
+          <button data-cmd="moveDown">Move down</button>
+          <button data-cmd="delete">Delete<kbd>⌫</kbd></button>
+        </div></div>
+      <div class="menu" data-menu="insert"><button class="menu-btn">Insert</button>
+        <div class="menu-pop">
+          <button data-cmd="insertRect">Rectangle<kbd>M</kbd></button>
+          <button data-cmd="insertText">Text<kbd>T</kbd></button>
+          <button data-cmd="insertImage">Image…<kbd>I</kbd></button>
+          <button data-cmd="insertCountdown">Countdown</button>
+        </div></div>
+      <div class="menu" data-menu="view"><button class="menu-btn">View</button>
+        <div class="menu-pop">
+          <button data-cmd="viewDesktop">Desktop</button>
+          <button data-cmd="viewTablet">Tablet</button>
+          <button data-cmd="viewPhone">Phone</button>
+          <hr>
+          <button data-cmd="preview">Preview the page<kbd>P</kbd></button>
+          <button data-cmd="toggleTheme">Switch light / dark</button>
+        </div></div>
+      <div class="menu" data-menu="window"><button class="menu-btn">Window</button>
+        <div class="menu-pop">
+          <button data-cmd="toggleTimeline">Timeline</button>
+          <button data-cmd="openMedia">Media</button>
+        </div></div>
+    </nav>
+    <span class="spacer"></span>
+    <span id="saveState" class="save-state">Saved in this browser</span>
+    <div class="seg" role="group" aria-label="Screen size">
+      <button data-cmd="viewDesktop" class="on" title="Desktop" aria-label="Desktop"><svg viewBox="0 0 24 24"><path d="M2 4h20v13H2z M8 21h8 M12 17v4"/></svg></button>
+      <button data-cmd="viewTablet" title="Tablet" aria-label="Tablet"><svg viewBox="0 0 24 24"><path d="M5 2h14v20H5z M11 18h2"/></svg></button>
+      <button data-cmd="viewPhone" title="Phone" aria-label="Phone"><svg viewBox="0 0 24 24"><path d="M7 2h10v20H7z M11 18h2"/></svg></button>
+    </div>
+    <button class="icon-btn" data-cmd="toggleTheme" title="Switch light / dark" aria-label="Switch light or dark mode"><svg viewBox="0 0 24 24"><path d="M12 4V2 M12 22v-2 M4 12H2 M22 12h-2 M5 5l1.5 1.5 M17.5 17.5L19 19 M5 19l1.5-1.5 M17.5 6.5L19 5 M12 8a4 4 0 100 8 4 4 0 000-8z"/></svg></button>
+    <button class="btn" data-cmd="preview" id="previewBtn">Preview</button>
+    <button class="btn btn-primary" data-cmd="download"><svg viewBox="0 0 24 24"><path d="M12 3v12 M7 10l5 5 5-5 M4 21h16"/></svg>Download<span id="changeCount" class="count" hidden></span></button>
+  </header>
+
+  <div id="optbar" class="optbar"></div>
+
+  <div class="workspace">
+    <nav class="tools" aria-label="Tools">
+      <button data-tool="select" class="on" title="Select (V)" aria-label="Select"><svg viewBox="0 0 24 24"><path d="M4 3l7 17 2.5-7.5L21 10z"/></svg></button>
+      <button data-tool="rect" title="Rectangle (M) — click on the page to add one" aria-label="Rectangle"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/></svg></button>
+      <button data-tool="text" title="Text (T) — click on the page to add text" aria-label="Text"><svg viewBox="0 0 24 24"><path d="M4 7V4h16v3 M9 20h6 M12 4v16"/></svg></button>
+      <button data-tool="image" title="Image (I)" aria-label="Image"><svg viewBox="0 0 24 24"><path d="M3 3h18v18H3z M21 15l-5-5L5 21"/></svg></button>
+      <button data-tool="pivot" title="Pivot point (O) — click where a part should bend" aria-label="Pivot point"><svg viewBox="0 0 24 24"><path d="M12 2v4 M12 18v4 M2 12h4 M18 12h4 M12 9a3 3 0 100 6 3 3 0 000-6z"/></svg></button>
+    </nav>
+
+    <aside class="left">
+      <section class="panel">
+        <div class="panel-tabs"><span class="on">Pages</span></div>
+        <div id="pageList" class="list"></div>
+      </section>
+      <section class="panel grow">
+        <div class="panel-tabs"><span class="on">Layers</span></div>
+        <div id="layerList" class="list layers"></div>
+      </section>
+    </aside>
+
+    <main class="stage-wrap">
+      <div id="docTabs" class="doc-tabs"></div>
+      <div class="stage" id="stage">
+        <div id="frameBox" class="frame-box"><iframe id="frame" title="Page being edited"></iframe></div>
+      </div>
+      <section id="timeline" class="timeline" hidden></section>
+      <div class="statusbar"><span id="statusSel">Nothing selected</span><span class="spacer"></span><span id="statusTip">Tip: right-click anything to turn it into a button or countdown</span></div>
+    </main>
+
+    <aside class="right">
+      <section class="panel">
+        <div class="panel-tabs" id="inspectorTabs"></div>
+        <div id="inspector" class="panel-body"></div>
+      </section>
+      <section class="panel">
+        <div class="panel-tabs"><span class="on">Team Kit</span></div>
+        <div id="teamKit" class="panel-body"></div>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<!-- Floating UI -->
+<div id="ctxMenu" class="ctx" role="menu" hidden></div>
+<div id="modal" class="modal" hidden><div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle"></div></div>
+<div id="toast" class="toast" role="status" hidden></div>
+<input id="hiddenFile" type="file" hidden multiple>
+
+<script src="runtime.js"></script>
+<script src="editor.js"></script>
+</body>
+</html>
