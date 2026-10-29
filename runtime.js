@@ -78,14 +78,15 @@ function seRuntime() {
   }
 
   /* ---------- Motion effects ---------- */
-  var BASE = { fade: 700, slide: 700, grow: 600, spin: 4000, float: 3000, pulse: 1600 };
+  var BASE = { fade: 700, slide: 700, grow: 600, spin: 4000, float: 3000, pulse: 1600, flow: 8000 };
   var SPEED = { slow: 1.6, normal: 1, fast: 0.6 };
-  function frames(effect) {
+  function frames(effect, c) {
     switch (effect) {
+      case 'flow': return [{ backgroundPosition: '0% 50%' }, { backgroundPosition: '300% 50%' }];
       case 'fade': return [{ opacity: 0 }, { opacity: 1 }];
       case 'slide': return [{ opacity: 0, transform: 'translateY(24px)' }, { opacity: 1, transform: 'translateY(0)' }];
       case 'grow': return [{ opacity: 0, transform: 'scale(0.85)' }, { opacity: 1, transform: 'scale(1)' }];
-      case 'spin': return [{ transform: 'rotate(0deg)' }, { transform: 'rotate(360deg)' }];
+      case 'spin': return [{ transform: 'rotate(0deg)' }, { transform: 'rotate(' + (c && c.dir === 'ccw' ? -360 : 360) + 'deg)' }];
       case 'float': return [{ transform: 'translateY(0)' }, { transform: 'translateY(-10px)' }, { transform: 'translateY(0)' }];
       case 'pulse': return [{ transform: 'scale(1)' }, { transform: 'scale(1.06)' }, { transform: 'scale(1)' }];
     }
@@ -98,13 +99,14 @@ function seRuntime() {
     }
   }
   function makeMotion(el, c, fill) {
-    var f = frames(c.effect);
+    var f = frames(c.effect, c);
     if (!f || !el.animate) return null;
     prepSvg(el);
+    if (c.effect === 'flow' && !el.style.backgroundSize) el.style.backgroundSize = '300% 100%';
     return el.animate(f, {
-      duration: (BASE[c.effect] || 700) * (SPEED[c.speed] || 1),
+      duration: c.secs ? c.secs * 1000 : (BASE[c.effect] || 700) * (SPEED[c.speed] || 1),
       iterations: c.repeat === 'forever' ? Infinity : 1,
-      easing: c.effect === 'spin' ? 'linear' : 'ease-in-out',
+      easing: c.effect === 'spin' || c.effect === 'flow' ? 'linear' : 'ease-in-out',
       fill: fill
     });
   }
@@ -166,10 +168,88 @@ function seRuntime() {
   }
   function stopTimeline(el) { if (el.__seTl) { el.__seTl.cancel(); el.__seTl = null; } }
 
+
+  /* ---------- Pop-ups ---------- */
+  var backdrop = null, openPop = null;
+  function closePopup() {
+    if (openPop) openPop.classList.remove('se-open');
+    if (backdrop) backdrop.classList.remove('se-open');
+    openPop = null;
+  }
+  function openPopup(name) {
+    var el = document.querySelector('[data-se-popup="' + (window.CSS && CSS.escape ? CSS.escape(name) : name) + '"]');
+    if (!el) return;
+    closePopup();
+    if (!backdrop) {
+      backdrop = document.createElement('div');
+      backdrop.className = 'se-backdrop';
+      backdrop.addEventListener('click', closePopup);
+      document.body.appendChild(backdrop);
+    }
+    backdrop.classList.add('se-open');
+    el.classList.add('se-open');
+    openPop = el;
+    var f = el.querySelector('a,button,input,select,textarea,[tabindex]'); if (f) f.focus();
+  }
+  function setupPopups() {
+    document.addEventListener('click', function (e) {
+      if (EDITOR) return;
+      var o = e.target.closest && e.target.closest('[data-se-open]');
+      if (o) { e.preventDefault(); openPopup(o.getAttribute('data-se-open')); return; }
+      if (e.target.closest && e.target.closest('[data-se-close]')) { e.preventDefault(); closePopup(); }
+    });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closePopup(); });
+  }
+
+  /* ---------- Expanding rows with documents ---------- */
+  function loadDoc(d) {
+    var src = d.getAttribute('data-se-doc');
+    if (!src || !d.open || d.querySelector('iframe.se-doc')) return;
+    var f = document.createElement('iframe');
+    f.className = 'se-doc'; f.src = src; f.title = (d.querySelector('summary') || {}).textContent || 'Document';
+    (d.querySelector('.se-expand-body') || d).appendChild(f);
+  }
+  function setupExpanders() {
+    var list = document.querySelectorAll('details[data-se-doc]');
+    for (var i = 0; i < list.length; i++) {
+      (function (d) { d.addEventListener('toggle', function () { loadDoc(d); }); loadDoc(d); })(list[i]);
+    }
+  }
+
+  /* ---------- Section tabs that follow scrolling ---------- */
+  function setupTabs() {
+    var navs = document.querySelectorAll('[data-se-tabs]');
+    if (!navs.length || !('IntersectionObserver' in window)) return;
+    for (var n = 0; n < navs.length; n++) {
+      (function (nav) {
+        var links = nav.querySelectorAll('a[href^="#"]');
+        var map = {};
+        var io = new IntersectionObserver(function (entries) {
+          entries.forEach(function (e) {
+            if (!e.isIntersecting) return;
+            for (var i = 0; i < links.length; i++) links[i].classList.toggle('se-active', links[i].getAttribute('href') === '#' + e.target.id);
+          });
+        }, { rootMargin: '-40% 0px -55% 0px' });
+        for (var i = 0; i < links.length; i++) {
+          var id = links[i].getAttribute('href').slice(1);
+          var t = document.getElementById(id);
+          if (t) { map[id] = t; io.observe(t); }
+          links[i].addEventListener('click', function (ev) {
+            var t2 = document.getElementById(this.getAttribute('href').slice(1));
+            if (!t2) return;
+            ev.preventDefault();
+            t2.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+          });
+        }
+      })(navs[n]);
+    }
+  }
+
   function init() {
     renderAllCountdowns();
     setInterval(renderAllCountdowns, 1000);
     if (EDITOR) return;
+    setupPopups(); setupExpanders(); setupTabs();
     var m = document.querySelectorAll('[data-se-motion]');
     for (var i = 0; i < m.length; i++) setupMotion(m[i]);
     var t = document.querySelectorAll('[data-se-timeline]');
@@ -184,7 +264,8 @@ function seRuntime() {
     playMotion: playMotion,
     timeline: timeline,
     stopTimeline: stopTimeline,
-    setNowOffset: function (ms) { offset = ms; renderAllCountdowns(); }
+    setNowOffset: function (ms) { offset = ms; renderAllCountdowns(); },
+    openPopup: openPopup, closePopup: closePopup
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 }
@@ -200,5 +281,16 @@ var SE_RUNTIME_CSS = [
   '.se-cd-now{font-size:1.5em;font-weight:700}',
   '.se-cd-next{font-size:.8em;opacity:.75}',
   '.se-button{text-decoration:none;cursor:pointer}',
+  '[data-se-hide]{display:none!important}',
+  '[data-se-popup]:not(.se-open){display:none!important}',
+  '[data-se-popup].se-open{position:fixed!important;left:50%!important;top:50%!important;right:auto!important;bottom:auto!important;transform:translate(-50%,-50%)!important;z-index:1001!important;max-width:calc(100vw - 32px);max-height:calc(100vh - 32px);overflow:auto}',
+  '.se-backdrop{display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.6)}',
+  '.se-backdrop.se-open{display:block}',
+  'details.se-expand>summary{cursor:pointer}',
+  'iframe.se-doc{display:block;width:100%;height:70vh;border:0;margin-top:12px}',
+  '[data-se-tabs]{display:flex;flex-direction:column;gap:8px}',
+  '[data-se-tabs] a{text-decoration:none;color:inherit;opacity:.6}',
+  '[data-se-tabs] a.se-active{opacity:1;font-weight:700}',
+  '.se-embed{min-height:40px}',
   '@media (prefers-reduced-motion: reduce){[data-se-motion],[data-se-timeline]{animation:none!important}}'
 ].join('\n');
