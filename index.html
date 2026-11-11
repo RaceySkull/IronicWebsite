@@ -1,87 +1,187 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Site Editor</title>
-<meta name="description" content="A visual editor for your team's website. Open your site, change it like a design file, and download the updated version.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23F05A28'/%3E%3Cpath d='M9 22h14M9 10h14M9 16h9' stroke='%231A1A1A' stroke-width='3'/%3E%3C/svg%3E">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://oibmeboozeqdurzzufzr.supabase.co wss://oibmeboozeqdurzzufzr.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'">
+<title>Orbyt Designs: edit your team’s website like a design file</title>
+<meta name="description" content="Orbyt Designs opens the website you already have and lets your whole team edit it like a design file. Drag things anywhere, add effects, then download the finished files. No code needed.">
+<meta property="og:title" content="Orbyt Designs">
+<meta property="og:description" content="Edit your team’s website like a design file. No code needed.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="og-image.png">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="editor.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;800&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<link rel="stylesheet" href="site.css">
+<style>
+.hero { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 56px; align-items: center; padding-top: 88px; padding-bottom: 64px; }
+.hero h1 { margin: 0; font-size: clamp(40px, 6vw, 64px); line-height: 1.02; font-weight: 800; }
+.hero p { margin: 0; font-size: 19px; color: var(--dim); max-width: 520px; }
+.hero .stack { display: flex; flex-direction: column; gap: 24px; }
+.hero .ctas { display: flex; flex-wrap: wrap; gap: 12px; }
+.shot { background: #1A1A1A; border: 1px solid #333; box-shadow: 0 20px 60px rgba(0,0,0,.45); }
+.shot .bar { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border-bottom: 1px solid #2A2A2A; font: 12px var(--body); color: #A8A8A8; }
+.shot .body { display: grid; grid-template-columns: 32px minmax(0, 1fr) 128px; height: 320px; }
+.shot .tools { background: #2A2A2A; display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 12px; }
+.shot .tools span { width: 16px; height: 16px; border: 1px solid #8A8A8A; }
+.shot .tools span:first-child { background: var(--comet); border-color: var(--comet); }
+.shot .stage { background: #1E1E1E; padding: 16px; }
+.shot .page { background: #0A0A0A; height: 100%; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.shot .page b { font: 800 32px/1 var(--brand); color: #F1F0EF; }
+.shot .row { display: flex; gap: 12px; }
+.shot .row span { flex: 1; height: 112px; background: linear-gradient(160deg, #2c2c2c, #151515); }
+.shot .row span.sel { outline: 2px solid var(--comet); outline-offset: 3px; box-shadow: 0 0 18px rgba(202,55,77,.6); }
+.shot .props { background: #2A2A2A; padding: 12px; display: flex; flex-direction: column; gap: 8px; font: 11px var(--body); color: #A8A8A8; }
+.shot .props b { color: #E6E6E6; }
+.shot .props i { display: flex; justify-content: space-between; font-style: normal; }
+.shot .props i::after { content: ""; width: 20px; height: 10px; background: #444; }
+.shot .props i.on::after { background: var(--comet); }
+section { scroll-margin-top: 24px; }
+.band { background: var(--space-2); border-top: 1px solid var(--panel); border-bottom: 1px solid var(--panel); }
+.sec { padding-top: 80px; padding-bottom: 80px; display: flex; flex-direction: column; gap: 32px; }
+.sec h2 { margin: 0; font-size: 36px; font-weight: 800; line-height: 1.15; }
+.sec .lead { margin: 0; color: var(--dim); font-size: 18px; max-width: 640px; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.steps li { display: flex; flex-direction: column; gap: 12px; padding: 28px; background: var(--panel); border: 1px solid var(--line); }
+.steps .n { font: 500 14px var(--brand); color: var(--stardust); letter-spacing: .1em; }
+.steps h3, .feat h3 { margin: 0; font-size: 21px; font-weight: 600; }
+.steps p, .feat p { margin: 0; color: var(--dim); }
+.feats { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1px; background: var(--panel); border: 1px solid var(--panel); }
+.feat { display: flex; flex-direction: column; gap: 12px; padding: 28px; background: var(--space); }
+.feat svg { width: 28px; height: 28px; fill: none; stroke: var(--stardust); stroke-width: 1.6; }
+.split { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 48px; align-items: center; }
+.checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.checks li { display: flex; gap: 12px; align-items: flex-start; padding: 16px; background: var(--panel); }
+.checks svg { width: 20px; height: 20px; flex: none; margin-top: 4px; fill: none; stroke: var(--ok); stroke-width: 2.2; }
+.who { display: flex; flex-direction: column; gap: 16px; }
+.who div { display: flex; gap: 16px; }
+.orbie { display: flex; flex-direction: column; gap: 16px; }
+.orbie .me { align-self: flex-end; max-width: 85%; padding: 8px 12px; background: var(--orbit); font-size: 15px; }
+.orbie .it { max-width: 90%; padding: 8px 12px; border: 1px solid var(--stardust); font-size: 15px; }
+.faq { display: flex; flex-direction: column; gap: 8px; max-width: 860px; }
+.faq details { padding: 16px 20px; background: var(--panel); border: 1px solid var(--line); }
+.faq summary { cursor: pointer; font-weight: 600; font-size: 18px; }
+.faq p { margin: 12px 0 0; color: var(--dim); }
+.end { text-align: center; align-items: center; }
+.end .ctas { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+@media (max-width: 640px) { .shot .body { grid-template-columns: 28px minmax(0, 1fr); } .shot .props { display: none; } .top nav { display: none; } }
+</style>
 </head>
 <body>
+<header class="top"><div class="wrap">
+  <a href="index.html" class="lockup" style="--s:24px" aria-label="Orbyt Designs home" id="logo"></a>
+  <nav aria-label="Main"><a href="#how">How it works</a><a href="#features">Features</a><a href="#teams">For teams</a><a href="#faq">Questions</a></nav>
+  <div class="actions"><a class="btn btn-small" href="signin.html" id="navSignIn">Sign in</a><a class="btn btn-primary btn-small" href="signin.html" id="navStart">Get started</a></div>
+</div></header>
 
-<section id="welcome" class="welcome">
-  <div class="welcome-card">
-    <div class="brand"><span class="logo">Se</span><span>Site Editor</span></div>
-    <h1>Open your site to start editing</h1>
-    <p>Pick the folder your website lives in, or a ZIP of it. Nothing gets uploaded anywhere: everything stays in this browser until you download it.</p>
-    <div class="welcome-actions">
-      <label class="btn btn-primary btn-lg">Choose site folder<input id="openFolder" type="file" webkitdirectory multiple hidden></label>
-      <label class="btn btn-lg">Open a ZIP<input id="openZip" type="file" accept=".zip" hidden></label>
+<main>
+<section class="wrap hero">
+  <div class="stack">
+    <span class="label" style="color: var(--stardust)">Free while in early access</span>
+    <h1>Edit your website like a design file.</h1>
+    <p>Orbyt Designs opens the site you already have and lets your whole team change it the way you’d edit a poster. Drag things anywhere, change fonts and colors, add effects, then download the finished files. No code needed.</p>
+    <div class="ctas"><a class="btn btn-primary" href="signin.html" id="heroStart">Get started</a><a class="btn" href="editor.html">Try it with a site on your computer</a></div>
+    <span class="muted" style="font-size: 15px">Works with plain HTML sites, like the ones on GitHub Pages.</span>
+  </div>
+  <div class="shot" role="img" aria-label="The Orbyt Designs editor with a team website open, one photo selected and glowing, and the Effects panel on the right">
+    <div class="bar"><span class="mark" style="width:14px;height:14px"></span>File&nbsp; Edit&nbsp; Insert&nbsp; Layer&nbsp; View</div>
+    <div class="body">
+      <div class="tools"><span></span><span></span><span></span><span></span></div>
+      <div class="stage"><div class="page"><span style="height: 8px; width: 40%; background: #08A19A"></span><b>Your Team</b><div class="row"><span></span><span class="sel"></span><span></span></div></div></div>
+      <div class="props"><b>Effects</b><i class="on">Glow</i><i class="on">Line</i><i>Zoom</i><i>Fade</i></div>
     </div>
-    <button id="resumeBtn" class="btn btn-ghost" hidden>Continue where you left off</button>
-    <p id="welcomeError" class="error" role="alert" hidden></p>
   </div>
 </section>
 
-<div id="app" class="app" hidden>
-  <header class="menubar">
-    <span class="logo" aria-hidden="true">Se</span>
-    <nav class="menus" id="menus" aria-label="Menu"></nav>
-    <span class="spacer"></span>
-    <span id="saveState" class="save-state">Saved in this browser</span>
-    <div class="seg" role="group" aria-label="Screen size" id="deviceSeg">
-      <button data-cmd="viewDesktop" data-dev="desktop" title="Desktop" aria-label="Desktop"><svg viewBox="0 0 24 24"><path d="M2 4h20v13H2z M8 21h8 M12 17v4"/></svg></button>
-      <button data-cmd="viewTablet" data-dev="tablet" title="Tablet: changes here only apply to tablets and phones" aria-label="Tablet"><svg viewBox="0 0 24 24"><path d="M5 2h14v20H5z M11 18h2"/></svg></button>
-      <button data-cmd="viewPhone" data-dev="phone" title="Phone: changes here only apply to phones" aria-label="Phone"><svg viewBox="0 0 24 24"><path d="M7 2h10v20H7z M11 18h2"/></svg></button>
-    </div>
-    <button class="icon-btn" data-cmd="toggleTheme" title="Switch light / dark" aria-label="Switch light or dark mode"><svg viewBox="0 0 24 24"><path d="M12 4V2 M12 22v-2 M4 12H2 M22 12h-2 M5 5l1.5 1.5 M17.5 17.5L19 19 M5 19l1.5-1.5 M17.5 6.5L19 5 M12 8a4 4 0 100 8 4 4 0 000-8z"/></svg></button>
-    <button class="btn" data-cmd="preview" id="previewBtn">Preview</button>
-    <button class="btn btn-primary" data-cmd="download"><svg viewBox="0 0 24 24"><path d="M12 3v12 M7 10l5 5 5-5 M4 21h16"/></svg>Download<span id="changeCount" class="count" hidden></span></button>
-  </header>
+<section id="how" class="band"><div class="wrap sec">
+  <div><h2>How it works</h2><p class="lead">Three steps, start to finish. Your hosting and your files stay yours the whole time.</p></div>
+  <ol class="steps">
+    <li><span class="n">01</span><h3>Open your site</h3><p>Upload your site’s folder or a ZIP. Orbyt reads your pages, styles, fonts and photos, and checks for anything missing.</p></li>
+    <li><span class="n">02</span><h3>Change anything</h3><p>Click to select, drag to move, double-click to type. Right-click any shape to turn it into a button, a countdown or a pop-up.</p></li>
+    <li><span class="n">03</span><h3>Download and go live</h3><p>See every change in plain words, then download a ZIP of just what changed. Upload it to your host and you’re live.</p></li>
+  </ol>
+</div></section>
 
-  <div id="optbar" class="optbar"></div>
-
-  <div class="workspace">
-    <nav class="tools" id="tools" aria-label="Tools"></nav>
-
-    <main class="stage-col">
-      <div id="docTabs" class="doc-tabs"></div>
-      <div class="stage-grid">
-        <span class="ruler-corner"></span>
-        <canvas id="rulerH" class="ruler ruler-h" aria-hidden="true"></canvas>
-        <canvas id="rulerV" class="ruler ruler-v" aria-hidden="true"></canvas>
-        <div class="stage" id="stage">
-          <div id="frameBox" class="frame-box"><iframe id="frame" title="Page being edited"></iframe></div>
-          <div id="ctxBar" class="ctx-bar" hidden></div>
-        </div>
-      </div>
-      <section id="timeline" class="timeline" hidden></section>
-      <div class="statusbar">
-        <button id="zoomBtn" class="status-btn">100%</button>
-        <span id="statusDev">Desktop</span>
-        <span id="statusSel">Nothing selected</span>
-        <span class="spacer"></span>
-        <span id="statusTip"></span>
-      </div>
-    </main>
-
-    <aside class="dock" id="dock" aria-label="Panels"></aside>
+<section id="features" class="wrap sec">
+  <div><h2>Everything a team site needs</h2><p class="lead">Laid out like the design apps you already know, with layers, panels and a tool strip, but made for websites.</p></div>
+  <div class="feats">
+    <div class="feat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3l7 17 2.5-7.5L21 10z"/></svg><h3>Put anything anywhere</h3><p>Drag, resize and stack things freely. Snapping guides, align buttons and layers keep it tidy.</p></div>
+    <div class="feat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h18v16H3z M7 4v16 M11 4v16"/></svg><h3>Effects with a switch</h3><p>Glows, lines that slide in, fades, zooms and borders. Turn one on and hover to see it.</p></div>
+    <div class="feat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 100 18 9 9 0 000-18z M12 7v5h4"/></svg><h3>Countdowns, pop-ups and more</h3><p>Queue event dates, build pop-ups, add expanding rows with PDFs, and embed forms.</p></div>
+    <div class="feat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2h10v20H7z M11 18h2"/></svg><h3>Phone layouts</h3><p>Switch to Phone view and rearrange things just for small screens.</p></div>
+    <div class="feat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h4l3-8 4 16 3-8h2"/></svg><h3>Motion and animation</h3><p>Quick effects like spin and float, or a step-by-step timeline that smooths every move.</p></div>
+    <div class="feat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 100 18c1 0 2-.8 2-2 0-1.2-1-1.6-1-2.6 0-1 .8-1.4 2-1.4h2a4 4 0 004-4c0-4.4-4-8-9-8z"/></svg><h3>Your brand, everywhere</h3><p>Your colors, fonts and text styles live in a Team Kit. Change one and every page updates.</p></div>
   </div>
-</div>
+</section>
 
-<div id="ctxMenu" class="ctx" role="menu" hidden></div>
-<div id="flyout" class="ctx" role="menu" hidden></div>
-<div id="modal" class="modal" hidden><div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle"></div></div>
-<div id="toast" class="toast" role="status" hidden></div>
+<section class="band"><div class="wrap sec split">
+  <div style="display: flex; flex-direction: column; gap: 16px"><h2>Works with the site you already have</h2><p class="lead">No rebuilding from a template. Orbyt reads your own styles and animations and lets you change them. Pages you don’t touch are left exactly as they were.</p></div>
+  <ul class="checks">
+    <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg><span>Finds missing photos and broken links when you open a site</span></li>
+    <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg><span>Edits lists in your own scripts, like an event schedule, without touching code</span></li>
+    <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg><span>Shrinks big photos on upload so pages stay fast</span></li>
+    <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg><span>Your hosting stays yours: download the files and put them wherever you like</span></li>
+  </ul>
+</div></section>
 
-<script src="runtime.js"></script>
-<script src="core.js"></script>
-<script src="canvas.js"></script>
-<script src="panels.js"></script>
-<script src="io.js"></script>
+<section id="teams" class="wrap sec split" style="align-items: start">
+  <div class="who">
+    <h2>Built for a whole team</h2>
+    <p class="lead">Invite your teammates and decide what each person can do. Your team’s site and files are private to your team.</p>
+    <div><span class="avatar" style="background: var(--comet); color: #fff">R</span><span><strong>Roles you control.</strong> Owners, Admins, Editors and Viewers, plus switches for things like downloading or changing team colors.</span></div>
+    <div><span class="avatar" style="background: #3FB27F">S</span><span><strong>Shared parts.</strong> Mark your menu bar as shared and editing it on one page updates every page.</span></div>
+    <div><span class="avatar" style="background: #4C8DFF">H</span><span><strong>Nothing gets lost.</strong> History keeps every step, and one person edits a page at a time so nobody overwrites anybody.</span></div>
+  </div>
+  <div class="card orbie">
+    <div style="display: flex; align-items: center; gap: 12px"><span class="mark" style="width: 44px; height: 44px; background: var(--stardust)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="none" stroke="#0A1F3A" stroke-width="1.5" stroke-dasharray="2 2.4"/><circle cx="12" cy="12" r="4.2" fill="#0A1F3A"/><circle cx="19.4" cy="6.6" r="2" fill="#CA374D"/></svg></span>
+      <div><div style="font-weight: 800; font-size: 20px">Meet Orbie</div><div class="muted" style="font-size: 14px">Your AI helper, coming soon</div></div></div>
+    <p class="muted" style="margin: 0">Ask in plain words, like “make the team photos glow when hovered,” and Orbie makes the change, tells you exactly what it did, and lets you keep it or undo it.</p>
+    <div class="me">add a line under the team photos that slides in</div>
+    <div class="it">Done. All 4 photos have a line that slides in on hover. Keep it?</div>
+  </div>
+</section>
+
+<section id="faq" class="band"><div class="wrap sec">
+  <h2>Questions</h2>
+  <div class="faq">
+    <details open><summary>Does it cost anything?</summary><p>It’s free while Orbyt Designs is in early access.</p></details>
+    <details><summary>Do I need to know how to code?</summary><p>No. If you can use a design app or make a slideshow, you can use Orbyt. There’s a Code view for people who want it, but you never have to open it.</p></details>
+    <details><summary>What kind of sites does it work with?</summary><p>Sites made of plain HTML, CSS and JavaScript files, like most sites hosted on GitHub Pages.</p></details>
+    <details><summary>Where does my site live?</summary><p>Wherever it lives now. Orbyt edits your files and gives them back; you upload them to your own host.</p></details>
+    <details><summary>Who can see my team’s work?</summary><p>Only people you invite. Each team’s site, files and settings are kept separate and private. See the <a href="privacy.html">privacy page</a> for exactly what we store.</p></details>
+  </div>
+</div></section>
+
+<section class="wrap sec end">
+  <h2 style="font-size: 44px">Ready to open your site?</h2>
+  <p class="lead">Bring the site you already have. Your first change takes about a minute.</p>
+  <div class="ctas"><a class="btn btn-primary" href="signin.html" id="endStart">Get started free</a><a class="btn" href="signin.html">Sign in</a></div>
+</section>
+</main>
+
+<footer class="foot"><div class="wrap">
+  <a href="index.html" class="lockup" style="--s:18px" aria-label="Orbyt Designs home" id="logoFoot"></a>
+  <a href="privacy.html">Privacy</a><a href="terms.html">Terms</a>
+  <span class="copy">© <span id="year">2026</span> Orbyt Designs. All rights reserved.</span>
+</div></footer>
+
+<script src="config.js"></script>
+<script src="vendor/supabase.js"></script>
+<script src="orbyt.js"></script>
+<script>
+(async () => {
+  document.getElementById('logo').innerHTML = Orbyt.LOCKUP(24).replace(/^<span class="lockup"[^>]*>|<\/span>$/g, '');
+  document.getElementById('logoFoot').innerHTML = Orbyt.LOCKUP(18).replace(/^<span class="lockup"[^>]*>|<\/span>$/g, '');
+  document.getElementById('year').textContent = new Date().getFullYear();
+  try {
+    if (await Orbyt.session()) {
+      for (const id of ['navStart', 'heroStart', 'endStart']) { const a = document.getElementById(id); a.href = 'app.html'; a.textContent = 'Open your team'; }
+      const s = document.getElementById('navSignIn'); s.hidden = true;
+    }
+  } catch (e) { /* offline: links still go to sign-in */ }
+})();
+</script>
 </body>
 </html>

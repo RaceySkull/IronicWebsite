@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://oibmeboozeqdurzzufzr.supabase.co wss://oibmeboozeqdurzzufzr.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'">
+<title>Privacy · Orbyt Designs</title>
+<meta name="description" content="What Orbyt Designs stores about you and your team, and how to remove it.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;800&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<link rel="stylesheet" href="site.css">
+<style>
+main { padding: 64px 24px 96px; }
+article { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; font-family: var(--body); font-size: 17px; }
+article h1 { font: 800 40px/1.1 var(--brand); margin: 0 0 8px; }
+article h2 { font: 600 22px var(--brand); margin: 24px 0 0; }
+article p, article li { color: #D5E2EA; margin: 0; }
+article ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap"><a href="index.html" class="lockup" style="--s:22px" aria-label="Orbyt Designs home" id="logo"></a></div></header>
+<main><article>
+<h1>Privacy</h1>
+<p>Orbyt Designs is a tool for editing your team’s website. We keep as little about you as we can.</p>
+<h2>What we store</h2>
+<ul>
+  <li><strong>Your email address,</strong> so we can send you sign-in links.</li>
+  <li><strong>The display name you choose,</strong> so teammates know who changed what.</li>
+  <li><strong>Which teams you’re on and your role</strong> on each one.</li>
+  <li><strong>Your team’s website files</strong> (pages, styles, photos and documents) and a plain-words list of changes, like “Changed the text size of the headline.”</li>
+</ul>
+<h2>What we don’t do</h2>
+<ul>
+  <li>We don’t sell or share your information, show ads, or track you around the web.</li>
+  <li>We don’t ask for your age, address, phone number or anything else.</li>
+</ul>
+<h2>Who can see your team’s work</h2>
+<p>Only people on your team. Each team’s files and settings are kept separate by rules in the database itself, so other teams can’t see them.</p>
+<h2>Where it’s kept</h2>
+<p>Accounts and files are stored with Supabase, a hosting provider. Sign-in emails are sent through it too.</p>
+<h2>Removing your information</h2>
+<p>Leave a team from its Settings tab at any time, and the team’s owner can remove members. To delete your account completely, contact <span data-contact>the person who runs your Orbyt Designs team</span>.</p>
+<h2>Age</h2>
+<p>You must be 13 or older to make an account.</p>
+</article></main>
+<footer class="foot"><div class="wrap"><a href="index.html">Home</a><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a><span class="copy">© <span id="year">2026</span> Orbyt Designs. All rights reserved.</span></div></footer>
+<script src="config.js"></script>
+<script>
+document.getElementById('year').textContent = new Date().getFullYear();
+document.getElementById('logo').innerHTML = '<span class="mark" style="width:30px;height:30px"><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="12" rx="10" ry="4.2" fill="none" stroke="#fff" stroke-width="1.8" transform="rotate(-28 12 12)"/><circle cx="12" cy="12" r="3.6" fill="#fff"/></svg></span><span class="words"><span class="w1">ORBYT</span><span class="w2">DESIGNS</span></span>';
+document.querySelectorAll('[data-contact]').forEach(function (el) {
+  var m = (window.ORBYT_CONFIG || {}).contactEmail;
+  if (m) { var a = document.createElement('a'); a.href = 'mailto:' + m; a.textContent = m; el.textContent = ''; el.appendChild(a); }
+});
+</script>
+</body>
+</html>

@@ -122,6 +122,7 @@ function seRuntime() {
     if (reduce && c.calm !== false) return;
     var trig = c.trigger || 'load';
     if (trig === 'hover') { el.addEventListener('mouseenter', function () { playMotion(el); }); return; }
+    if (trig === 'parent') { var host = (c.host && el.closest('.' + c.host)) || el.parentElement; if (host) host.addEventListener('mouseenter', function () { playMotion(el); }); return; }
     if (trig === 'click') { el.addEventListener('click', function () { playMotion(el); }); return; }
     var a = makeMotion(el, c, 'both');
     if (!a) return;
@@ -292,5 +293,8 @@ var SE_RUNTIME_CSS = [
   '[data-se-tabs] a{text-decoration:none;color:inherit;opacity:.6}',
   '[data-se-tabs] a.se-active{opacity:1;font-weight:700}',
   '.se-embed{min-height:40px}',
+  '.se-frame{overflow:hidden}',
+  '.se-frame>img{display:block;width:100%;height:100%;object-fit:cover}',
+  '.se-frame:not(:has(>img)){display:none}',
   '@media (prefers-reduced-motion: reduce){[data-se-motion],[data-se-timeline]{animation:none!important}}'
 ].join('\n');

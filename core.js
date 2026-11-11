@@ -1,4 +1,4 @@
-/* Site Editor v2 — core
+/* Orbyt Designs v2 — core
    State, files, saving in the browser, rendering, the per-element style
    sheet (se-styles.css), undo/history and shared parts. */
 'use strict';
@@ -11,8 +11,13 @@ const S = {
   nextId: 1, keyN: 0, cssCache: new Map(), assetCache: new Map(), cssVer: new Map(), scroll: 0,
   sty: { desktop: {}, tablet: {}, phone: {} },
   openLayers: new Set(), openSecs: new Set(['pos', 'look', 'widget', 'char', 'text']),
-  showPopup: null, openDetails: new Set(), linkKind: null, linkFor: null, mediaFolder: 'All'
+  showPopup: null, openDetails: new Set(), linkKind: null, linkFor: null, mediaFolder: 'All',
+  fv: 0, docDirty: new Set(), dataCache: new Map(), multi: []
 };
+/* Options most quiet edits use: don't redraw the page, don't add "on phones" to the change log */
+const Q = Object.freeze({ render: false, devLabel: false });
+/* Remembers a scan of the site's files until any file changes */
+function memo(fn) { let v = -1, out; return (...a) => { if (v !== S.fv) { out = fn(...a); v = S.fv; } return out; }; }
 const $ = (q, r = document) => r.querySelector(q);
 const $$ = (q, r = document) => Array.from(r.querySelectorAll(q));
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -79,10 +84,22 @@ function relPath(fromFile, toPath) {
 function fileText(p) { const f = S.files.get(p); return f ? (f.kind === 'text' ? f.text : null) : null; }
 function setText(p, text, isNew) {
   const f = S.files.get(p);
-  if (f) { f.text = text; f.kind = 'text'; f.dirty = true; }
-  else S.files.set(p, { kind: 'text', text, type: mimeOf(p), dirty: true, isNew: !!isNew });
+  if (f) { f.text = text; f.kind = 'text'; f.dirty = true; f.v = (f.v || 0) + 1; }
+  else S.files.set(p, { kind: 'text', text, type: mimeOf(p), dirty: true, isNew: !!isNew, v: 1 });
   if (isCss(p)) S.cssVer.set(p, (S.cssVer.get(p) || 0) + 1);
+  S.fv++;
 }
+function addFile(p, f) { f.v = (f.v || 0) + 1; S.files.set(p, f); S.assetCache.delete(p); S.fv++; }
+
+/* ---------- Safety checks on anything typed or uploaded ---------- */
+/* Style values may only be plain values: no way to start a new CSS rule, comment, import or URL */
+function safeVal(v) { v = String(v); return /[{};<>\\]|\/\*|@|url\(|expression\(/i.test(v) ? null : v; }
+/* File paths from an upload: forward slashes, no leading slash, never "..", so nothing lands outside the site folder */
+function cleanPath(p) {
+  p = String(p).replace(/\\/g, '/').replace(/^\/+/, '');
+  return !p || p.split('/').some(seg => seg === '..' || seg === '.' || seg === '') ? null : p;
+}
+const LIMITS = { file: 50 * 1024 * 1024, total: 400 * 1024 * 1024, count: 6000 };
 
 
 Object.assign(I, {
@@ -99,34 +116,47 @@ Object.assign(I, {
   props: 'M4 6h10 M18 6h2 M4 12h4 M12 12h8 M4 18h12 M20 18h0 M14 4v4 M8 10v4 M16 16v4', char: 'M4 20l6-16 6 16 M6 14h8 M17 20l2-6 2 6',
   layers: 'M12 3l9 5-9 5-9-5z M3 13l9 5 9-5', pages: 'M6 2h9l5 5v15H6z M14 2v6h6', history: 'M3 12a9 9 0 109-9 9 9 0 00-7 3.4 M3 4v4h4 M12 7v5l3 2',
   kit: 'M12 3a9 9 0 100 18c1 0 2-.8 2-2 0-1.2-1-1.6-1-2.6 0-1 .8-1.4 2-1.4h2a4 4 0 004-4c0-4.4-4-8-9-8z M7.5 11h.01 M10 7h.01 M15 7h.01',
-  data: 'M4 5h16v14H4z M4 10h16 M4 15h16 M10 5v14', grad: 'M3 4h18v16H3z M7 4v16 M11 4v16 M15 4v16', pin: 'M12 17v5 M8 3h8l-1 6 3 3v2H6v-2l3-3z'
+  data: 'M4 5h16v14H4z M4 10h16 M4 15h16 M10 5v14', frame: 'M3 3h18v18H3z M3 16l5-5 4 4 3-3 6 6 M15 8h.01',
+  effects: 'M12 3l2.5 5.5L20 11l-5.5 2.5L12 19l-2.5-5.5L4 11l5.5-2.5z M19 3v4 M17 5h4', media: 'M3 6h7l2 2h9v12H3z M8 16l3-3 2 2 2-2 3 3',
+  help: 'M12 3a9 9 0 100 18 9 9 0 000-18z M9.5 9a2.5 2.5 0 015 .5c0 1.7-2.5 2-2.5 3.5 M12 17h.01', search: 'M11 4a7 7 0 100 14 7 7 0 000-14z M21 21l-5-5',
+  alL: 'M4 3v18 M8 7h12v4H8z M8 14h8v4H8z', alC: 'M12 3v18 M6 7h12v4H6z M8 14h8v4H8z', alR: 'M20 3v18 M4 7h12v4H4z M8 14h8v4H8z',
+  alT: 'M3 4h18 M7 8v12h4V8z M14 8v8h4V8z', alM: 'M3 12h18 M7 6v12h4V6z M14 8v8h4V8z', alB: 'M3 20h18 M7 4v12h4V4z M14 8v8h4V8z',
+  disH: 'M4 4v16 M20 4v16 M10 8h4v8h-4z', disV: 'M4 4h16 M4 20h16 M8 10h8v4H8z', grad: 'M3 4h18v16H3z M7 4v16 M11 4v16 M15 4v16', pin: 'M12 17v5 M8 3h8l-1 6 3 3v2H6v-2l3-3z'
 });
 
-/* Paths and file text helpers come from v1 */
 /* ============ 2. Opening a site ============ */
-async function loadEntries(entries) {
+async function loadEntries(entries, opts = {}) {
   // entries: [{ path, read: async () => ({ text } | { blob }) }]
   entries = entries.filter(e => !/(^|\/)(\.git|node_modules|__MACOSX)(\/|$)|\.DS_Store$|Thumbs\.db$/.test(e.path));
+  let skipped = 0;
+  entries = entries.filter(e => { const c = cleanPath(e.path); if (!c || (e.size || 0) > LIMITS.file) { skipped++; return false; } e.path = c; return true; });
   if (!entries.length) throw new Error('That folder looks empty. Pick the folder that holds your index.html.');
+  if (entries.length > LIMITS.count) throw new Error(`That’s ${entries.length} files, more than the ${LIMITS.count} the editor can open at once. Leave out folders the site doesn’t need.`);
+  const total = entries.reduce((n, e) => n + (e.size || 0), 0);
+  if (total > LIMITS.total) throw new Error(`That site is ${Math.round(total / 1048576)} MB, more than the ${LIMITS.total / 1048576} MB the editor can hold. Leave out big videos or old files and try again.`);
   const firsts = new Set(entries.map(e => e.path.split('/')[0]));
   const strip = firsts.size === 1 && entries.every(e => e.path.includes('/')) ? [...firsts][0] + '/' : '';
   resetProject();
-  S.site = strip ? strip.slice(0, -1) : 'My site';
+  S.site = opts.name || (strip ? strip.slice(0, -1) : 'My site');
   for (const e of entries) {
     const path = strip ? e.path.slice(strip.length) : e.path;
     const data = await e.read(TEXT_EXT.test(path));
     if (data.text != null) S.files.set(path, { kind: 'text', text: data.text, type: mimeOf(path), dirty: false, isNew: false });
     else S.files.set(path, { kind: 'blob', blob: data.blob, type: mimeOf(path), dirty: false, isNew: false });
   }
+  for (const f of S.files.values()) f.v = 1;
   loadSty();
+  if (opts.beforeOpen) opts.beforeOpen();
   const pages = allPages();
   if (!pages.length) throw new Error('No web pages found. Pick the folder that holds your index.html.');
   openApp(pages.find(p => /^index\.html?$/i.test(p)) || pages[0]);
+  if (skipped) toast(`${skipped} file${skipped === 1 ? ' was' : 's were'} left out (too big, or in an unsafe place inside the ZIP).`, 5000);
+  if (!opts.quiet) setTimeout(() => runChecks({ afterImport: true }), 900);
 }
 function resetProject() {
   for (const v of S.cssCache.values()) URL.revokeObjectURL(v.url);
   for (const v of S.assetCache.values()) URL.revokeObjectURL(v);
-  Object.assign(S, { files: new Map(), docs: new Map(), page: null, tabs: [], sel: null, changes: [], undo: [], redo: [], cssCache: new Map(), assetCache: new Map(), cssVer: new Map(), tlOpen: false, sty: { desktop: {}, tablet: {}, phone: {} }, keyN: 0, showPopup: null });
+  Object.assign(S, { files: new Map(), docs: new Map(), page: null, tabs: [], sel: null, changes: [], undo: [], redo: [], cssCache: new Map(), assetCache: new Map(), cssVer: new Map(), tlOpen: false, sty: { desktop: {}, tablet: {}, phone: {} }, keyN: 0, showPopup: null, fv: S.fv + 1, docDirty: new Set(), dataCache: new Map(), multi: [] });
 }
 function allPages() {
   return [...S.files.keys()].filter(isPage).sort((a, b) => {
@@ -138,7 +168,7 @@ function allPages() {
 $('#openFolder').addEventListener('change', async e => {
   const list = [...e.target.files];
   try {
-    await loadEntries(list.map(f => ({ path: f.webkitRelativePath || f.name, read: async asText => asText ? { text: await f.text() } : { blob: f } })));
+    await loadEntries(list.map(f => ({ path: f.webkitRelativePath || f.name, size: f.size, read: async asText => asText ? { text: await f.text() } : { blob: f } })));
   } catch (err) { showWelcomeError(err.message); }
   e.target.value = '';
 });
@@ -147,7 +177,7 @@ $('#openZip').addEventListener('change', async e => {
   try {
     const zip = await JSZip.loadAsync(file);
     const entries = [];
-    zip.forEach((path, z) => { if (!z.dir) entries.push({ path, read: async asText => asText ? { text: await z.async('string') } : { blob: new Blob([await z.async('arraybuffer')], { type: mimeOf(path) }) } }); });
+    zip.forEach((path, z) => { if (!z.dir) entries.push({ path, size: (z._data && z._data.uncompressedSize) || 0, read: async asText => asText ? { text: await z.async('string') } : { blob: new Blob([await z.async('arraybuffer')], { type: mimeOf(path) }) } }); });
     await loadEntries(entries);
   } catch (err) { showWelcomeError(err.message || 'That ZIP could not be opened. Try exporting it again.'); }
   e.target.value = '';
@@ -181,10 +211,14 @@ function serializeDoc(doc, keepIds) {
 
 /* ============ 3. Saving in this browser (IndexedDB) ============ */
 const DB = {
-  open() { return new Promise((res, rej) => { const r = indexedDB.open('site-editor', 1); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); },
-  async get(k) { const db = await this.open(); return new Promise((res, rej) => { const r = db.transaction('kv').objectStore('kv').get(k); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); },
-  async set(k, v) { const db = await this.open(); return new Promise((res, rej) => { const t = db.transaction('kv', 'readwrite'); t.objectStore('kv').put(v, k); t.oncomplete = res; t.onerror = () => rej(t.error); }); }
+  open() { return this._db || (this._db = new Promise((res, rej) => { const r = indexedDB.open('site-editor', 1); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); })); },
+  async tx(mode, fn) { const db = await this.open(); return new Promise((res, rej) => { const t = db.transaction('kv', mode); const out = fn(t.objectStore('kv')); t.oncomplete = () => res(out && out.result); t.onerror = () => rej(t.error); }); },
+  get(k) { return this.tx('readonly', st => st.get(k)); },
+  keys() { return this.tx('readonly', st => st.getAllKeys()); },
+  putMany(entries, dels = []) { return this.tx('readwrite', st => { for (const [k, v] of entries) st.put(v, k); for (const k of dels) st.delete(k); }); },
+  clear() { return this.tx('readwrite', st => st.clear()); }
 };
+/* Saving: only files and pages that changed since the last save are written */
 function scheduleSave() {
   $('#saveState').textContent = 'Saving…';
   clearTimeout(scheduleSave.t);
@@ -192,26 +226,49 @@ function scheduleSave() {
 }
 async function saveNow() {
   try {
-    const files = [];
-    for (const [path, f] of S.files) files.push({ path, kind: f.kind, text: f.text, blob: f.blob, dirty: f.dirty, isNew: f.isNew });
-    const docs = [];
-    for (const [path, d] of S.docs) docs.push([path, serializeDoc(d, true)]);
-    await DB.set('project', { v: 2, site: S.site, files, docs, changes: S.changes, page: S.page, tabs: S.tabs, nextId: S.nextId });
+    const put = [], dels = [];
+    for (const [path, f] of S.files) if (f.sv !== f.v) { put.push(['f:' + path, { kind: f.kind, text: f.text, blob: f.blob, dirty: f.dirty, isNew: f.isNew }]); f.sv = f.v; }
+    for (const p of S.docDirty) { const d = S.docs.get(p); if (d) put.push(['d:' + p, serializeDoc(d, true)]); }
+    S.docDirty.clear();
+    const flags = {}; for (const [path, f] of S.files) flags[path] = [f.dirty ? 1 : 0, f.isNew ? 1 : 0];
+    put.push(['meta', { v: 3, site: S.site, paths: [...S.files.keys()], flags, changes: S.changes, page: S.page, tabs: S.tabs, nextId: S.nextId }]);
+    for (const k of S.removedKeys || []) dels.push(k);
+    S.removedKeys = [];
+    await DB.putMany(put, dels);
     $('#saveState').textContent = 'Saved in this browser';
   } catch (e) { $('#saveState').textContent = 'Couldn’t save in this browser — download to keep your work'; }
 }
+function markDoc(p) { S.docDirty.add(p); }
 async function resumeProject() {
-  const p = await DB.get('project'); if (!p) return;
+  const meta = await DB.get('meta'), legacy = !meta && await DB.get('project');
+  if (!meta && !legacy) return;
   resetProject();
-  S.site = p.site; S.changes = p.changes || []; S.nextId = p.nextId || 1;
-  for (const f of p.files) S.files.set(f.path, { kind: f.kind, text: f.text, blob: f.blob, type: mimeOf(f.path), dirty: f.dirty, isNew: f.isNew });
-  for (const [path, html] of p.docs || []) { const d = new DOMParser().parseFromString(html, 'text/html'); assignIds(d); S.docs.set(path, d); }
-  S.tabs = (p.tabs || []).filter(t => S.files.has(t));
+  if (legacy) {
+    S.site = legacy.site; S.changes = legacy.changes || []; S.nextId = legacy.nextId || 1;
+    for (const f of legacy.files) S.files.set(f.path, { kind: f.kind, text: f.text, blob: f.blob, type: mimeOf(f.path), dirty: f.dirty, isNew: f.isNew, v: 1 });
+    for (const [path, html] of legacy.docs || []) { const d = new DOMParser().parseFromString(html, 'text/html'); assignIds(d); S.docs.set(path, d); S.docDirty.add(path); }
+    S.tabs = (legacy.tabs || []).filter(t => S.files.has(t));
+    await DB.putMany([], ['project']);
+  } else {
+    S.site = meta.site; S.changes = meta.changes || []; S.nextId = meta.nextId || 1;
+    for (const path of meta.paths) {
+      const f = await DB.get('f:' + path); if (!f) continue;
+      const fl = meta.flags[path] || [0, 0];
+      S.files.set(path, { kind: f.kind, text: f.text, blob: f.blob, type: mimeOf(path), dirty: !!fl[0], isNew: !!fl[1], v: 1, sv: 1 });
+      const html = await DB.get('d:' + path);
+      if (html) { const d = new DOMParser().parseFromString(html, 'text/html'); assignIds(d); S.docs.set(path, d); }
+    }
+    S.tabs = (meta.tabs || []).filter(t => S.files.has(t));
+  }
+  S.fv++;
   loadSty();
-  openApp(S.files.has(p.page) ? p.page : allPages()[0]);
+  openApp(S.files.has((meta || legacy).page) ? (meta || legacy).page : allPages()[0]);
+}
+async function savedSiteInfo() {
+  const meta = await DB.get('meta'); if (meta) return { site: meta.site, changes: (meta.changes || []).length };
+  const legacy = await DB.get('project'); return legacy ? { site: legacy.site, changes: (legacy.changes || []).length } : null;
 }
 
-/* ============ 4. Rendering ============ */
 /* ============ 4. Rendering the page ============ */
 function assetUrl(path) {
   if (S.assetCache.has(path)) return S.assetCache.get(path);
@@ -251,29 +308,40 @@ function rewriteSrcset(v, page) {
 
 const EDITOR_CSS = `
 [data-se-ui]{position:fixed;pointer-events:none;z-index:2147483646;box-sizing:border-box}
-.se-ui-hover{outline:1px dashed #F05A28}
-.se-ui-sel{outline:1px solid #F05A28;outline-offset:1px}
-.se-ui-tag{position:absolute;left:-1px;top:-24px;background:#F05A28;color:#1A1A1A;font:600 11px/1 'IBM Plex Sans',system-ui,sans-serif;padding:4px 6px;white-space:nowrap}
-.se-ui-h{position:absolute;width:8px;height:8px;background:#fff;border:1px solid #F05A28;pointer-events:auto}
+.se-ui-hover{outline:1px dashed #CA374D}
+.se-ui-sel{outline:1px solid #CA374D;outline-offset:1px}
+.se-ui-tag{position:absolute;left:-1px;top:-24px;background:#CA374D;color:#FFFFFF;font:600 11px/1 'IBM Plex Sans',system-ui,sans-serif;padding:4px 6px;white-space:nowrap}
+.se-ui-h{position:absolute;width:8px;height:8px;background:#fff;border:1px solid #CA374D;pointer-events:auto}
 .se-ui-guide{background:#FF3EA5}
 .se-ui-pivot{width:20px;height:20px;margin:-10px 0 0 -10px;border:2px solid #fff;box-shadow:0 0 0 1px #1A1A1A}
 .se-ui-pivot::before,.se-ui-pivot::after{content:"";position:absolute;background:#fff;left:50%;top:50%}
 .se-ui-pivot::before{width:28px;height:1px;margin-left:-14px}
 .se-ui-pivot::after{width:1px;height:28px;margin-top:-14px}
 [data-se-vanish]{visibility:hidden!important}
+.se-frame:not(:has(> img)){display:flex!important;align-items:center;justify-content:center;flex-direction:column;gap:6px;background:repeating-linear-gradient(45deg,rgba(128,128,128,.14) 0 10px,rgba(128,128,128,.22) 10px 20px)!important;outline:1px dashed rgba(128,128,128,.8);outline-offset:-1px;color:#9a9a9a;font:600 12px/1.3 'IBM Plex Sans',system-ui,sans-serif;text-align:center}
+.se-frame:not(:has(> img))::before{content:"";width:32px;height:32px;background:no-repeat center/contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239a9a9a' stroke-width='1.5'%3E%3Cpath d='M3 3h18v18H3z M3 16l5-5 4 4 3-3 6 6 M15 8h.01'/%3E%3C/svg%3E")}
+.se-frame:not(:has(> img))::after{content:"Drop a photo here";}
 .se-embed-ph{display:flex;align-items:center;justify-content:center;min-height:120px;height:100%;border:1px dashed #888;color:#888;font:13px system-ui,sans-serif;text-align:center;padding:12px}
-[contenteditable]{outline:2px solid #F05A28!important;outline-offset:2px;cursor:text}
+[contenteditable]{outline:2px solid #CA374D!important;outline-offset:2px;cursor:text}
 body.se-tool-insert,body.se-tool-insert *{cursor:crosshair!important}
 body.se-tool-hand,body.se-tool-hand *{cursor:grab!important}
 `;
 function renderFrame(keepScroll = true) {
   const frame = $('#frame');
+  if (S.preview) { renderPreview(); return; }
+  frame.removeAttribute('sandbox');
   if (keepScroll && frame.contentWindow) { try { S.scroll = frame.contentWindow.scrollY; } catch (e) { S.scroll = 0; } }
   const page = S.page, doc = getDoc(page), clone = doc.cloneNode(true);
   for (const el of clone.querySelectorAll('script[src*="se-widgets"], link[href*="se-widgets"]')) el.remove();
   if (!S.preview) {
-    for (const s of clone.querySelectorAll('script')) s.remove();
-    for (const el of clone.querySelectorAll('*')) for (const a of [...el.attributes]) if (/^on/i.test(a.name)) el.removeAttribute(a.name);
+    /* While editing nothing from the site may run: no scripts, no inline handlers, no
+       javascript: links, no self-running frames or plugins, no redirects or base changes */
+    for (const s of clone.querySelectorAll('script, meta[http-equiv], base')) s.remove();
+    for (const el of clone.querySelectorAll('*')) for (const a of [...el.attributes]) {
+      if (/^on/i.test(a.name) || a.name === 'srcdoc' || a.name === 'formaction' || /^\s*(javascript|vbscript):/i.test(a.value) && /^(href|src|action|data|xlink:href)$/i.test(a.name)) el.removeAttribute(a.name);
+    }
+    for (const f of clone.querySelectorAll('iframe, frame')) f.setAttribute('sandbox', '');
+    for (const o of clone.querySelectorAll('object, embed, applet')) { const ph = clone.createElement('div'); ph.className = 'se-embed-ph'; ph.textContent = 'Plug-in content (shows on your site)'; const id = o.getAttribute('data-se-id'); if (id) ph.setAttribute('data-se-id', id); o.replaceWith(ph); }
     for (const e of clone.querySelectorAll('.se-embed')) e.innerHTML = '<div class="se-embed-ph">Embedded content<br>Shows in Preview and on your site</div>';
     for (const d of clone.querySelectorAll('details')) if (S.openDetails.has(d.getAttribute('data-se-id'))) d.setAttribute('open', '');
     if (S.showPopup) {
@@ -300,8 +368,72 @@ function renderFrame(keepScroll = true) {
   frame.onload = onFrameLoad;
   frame.srcdoc = '<!DOCTYPE html>\n' + clone.documentElement.outerHTML;
 }
+/* Preview runs the site's own code, so it runs sealed off from the editor: its own blank
+   origin, scripts allowed, nothing else. Files are embedded as data so it needs no access. */
+function dataUrl(path) {
+  const f = S.files.get(path); if (!f) return Promise.resolve(null);
+  const c = S.dataCache.get(path); if (c && c.v === f.v) return c.p;
+  const blob = f.kind === 'blob' ? f.blob : new Blob([f.text], { type: mimeOf(path) });
+  const pr = new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => res(null); r.readAsDataURL(blob); });
+  S.dataCache.set(path, { v: f.v, p: pr });
+  return pr;
+}
+async function inlineCssUrls(css, fromPath, depth = 0) {
+  const refs = [...css.matchAll(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g)];
+  for (const m of refs) { const p = resolve(fromPath, m[2]); if (p && S.files.has(p)) { const u = await dataUrl(p); if (u) css = css.split(m[0]).join(`url("${u}")`); } }
+  for (const m of [...css.matchAll(/@import\s+(['"])([^'"]+)\1\s*;?/g)]) {
+    const p = resolve(fromPath, m[2]);
+    if (p && S.files.has(p) && depth < 3) css = css.split(m[0]).join(await inlineCssUrls(fileText(p) || '', p, depth + 1));
+  }
+  return css;
+}
+async function renderPreview() {
+  const frame = $('#frame'), page = S.page, token = (renderPreview.n = (renderPreview.n || 0) + 1);
+  const clone = getDoc(page).cloneNode(true);
+  for (const el of clone.querySelectorAll('script[src*="se-widgets"], link[href*="se-widgets"]')) el.remove();
+  for (const el of clone.querySelectorAll('[data-se-id]')) el.removeAttribute('data-se-id');
+  for (const el of [...clone.querySelectorAll('link[rel~="stylesheet"][href]')]) {
+    const p = resolve(page, el.getAttribute('href'));
+    if (p && S.files.has(p)) { const st = clone.createElement('style'); st.textContent = await inlineCssUrls(fileText(p) || '', p); el.replaceWith(st); }
+  }
+  for (const el of clone.querySelectorAll('style')) el.textContent = await inlineCssUrls(el.textContent, page);
+  for (const el of [...clone.querySelectorAll('script[src]')]) {
+    const p = resolve(page, el.getAttribute('src'));
+    if (p && S.files.has(p) && fileText(p) != null) {
+      const sc = clone.createElement('script'); sc.textContent = fileText(p);
+      if (el.type) sc.type = el.type;
+      if (el.defer || el.type === 'module') { el.remove(); clone.body.appendChild(sc); } else el.replaceWith(sc);
+    }
+  }
+  for (const attr of ['src', 'poster', 'href']) for (const el of clone.querySelectorAll(`[${attr}]`)) {
+    if (attr === 'href' && el.tagName !== 'LINK' && el.tagName !== 'image' && el.tagName !== 'use') continue;
+    const p = resolve(page, el.getAttribute(attr)); if (p && S.files.has(p)) el.setAttribute(attr, await dataUrl(p) || '');
+  }
+  for (const el of clone.querySelectorAll('[srcset]')) {
+    const parts = await Promise.all(el.getAttribute('srcset').split(',').map(async part => { const [u, ...rest] = part.trim().split(/\s+/); const p = resolve(page, u); return [p && S.files.has(p) ? await dataUrl(p) : u, ...rest].join(' '); }));
+    el.setAttribute('srcset', parts.join(', '));
+  }
+  for (const el of clone.querySelectorAll('[style*="url("]')) el.setAttribute('style', await inlineCssUrls(el.getAttribute('style'), page));
+  const rt = clone.createElement('style'); rt.textContent = SE_RUNTIME_CSS; clone.head.prepend(rt);
+  const run = clone.createElement('script'); run.textContent = '(' + seRuntime.toString() + ')();';
+  const nav = clone.createElement('script');
+  nav.textContent = "document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[href]');if(!a)return;var h=a.getAttribute('href')||'';if(h.charAt(0)==='#'||a.hasAttribute('data-se-open'))return;e.preventDefault();parent.postMessage({seNav:h},'*');},true);";
+  clone.body.appendChild(run); clone.body.appendChild(nav);
+  if (token !== renderPreview.n || !S.preview) return;
+  frame.setAttribute('sandbox', 'allow-scripts');
+  frame.onload = () => { layoutFrame(); };
+  frame.srcdoc = '<!DOCTYPE html>\n' + clone.documentElement.outerHTML;
+}
+window.addEventListener('message', e => {
+  if (!S.preview || e.source !== $('#frame').contentWindow || !e.data || typeof e.data.seNav !== 'string') return;
+  const href = e.data.seNav.slice(0, 2000), p = resolve(S.page, href);
+  if (p && isPage(p) && S.files.has(p)) switchPage(p);
+  else if (p && S.files.has(p)) dataUrl(p).then(u => { const w = window.open(); if (w) w.document.write(`<iframe src="${esc(u)}" style="border:0;width:100%;height:100vh"></iframe>`); });
+  else if (/^(https?:|mailto:)/i.test(href)) window.open(href, '_blank', 'noopener');
+});
 function fdoc() { try { return $('#frame').contentDocument; } catch (e) { return null; } }
-function fwin() { return $('#frame').contentWindow; }
+/* While previewing, the frame is sealed off, so the editor never reaches into it */
+function fwin() { return S.preview ? null : $('#frame').contentWindow; }
 function rEl(id) { const d = fdoc(); return d && id ? d.querySelector(`[data-se-id="${id}"]`) : null; }
 function sEl(id) { return id ? getDoc(S.page).querySelector(`[data-se-id="${id}"]`) : null; }
 
@@ -327,7 +459,7 @@ function stateSel(base, st) {
 function genSty() {
   const block = rules => Object.entries(rules).filter(([, d]) => Object.keys(d).length)
     .map(([sel, d]) => `${sel} { ${Object.entries(d).map(([p, v]) => `${p}: ${v};`).join(' ')} }`).join('\n');
-  let out = '/* Site Editor styles. Made by the editor: change them in the editor, not here. */\n' + block(S.sty.desktop) + '\n';
+  let out = '/* Orbyt Designs styles. Made by the editor: change them in the editor, not here. */\n' + block(S.sty.desktop) + '\n';
   for (const dev of ['tablet', 'phone']) {
     const b = block(S.sty[dev]);
     if (b) out += `\n@media (max-width: ${MEDIA[dev]}px) {\n${b.replace(/^/gm, '  ')}\n}\n`;
@@ -339,17 +471,27 @@ function parseDecls(body) {
   for (const part of body.split(';')) { const i = part.indexOf(':'); if (i > 0) { const p = part.slice(0, i).trim(), v = part.slice(i + 1).trim(); if (p && v) d[p] = v; } }
   return d;
 }
+/* Splits CSS into top-level blocks, allowing nesting (for @media) and any formatting */
+function cssBlocks(css) {
+  const out = []; let i = 0, depth = 0, start = 0, open = -1; const n = css.length;
+  while (i < n) {
+    const c = css[i];
+    if (c === '/' && css[i + 1] === '*') { const e = css.indexOf('*/', i + 2); i = e < 0 ? n : e + 2; continue; }
+    if (c === '"' || c === "'") { i++; while (i < n && css[i] !== c) { if (css[i] === '\\') i++; i++; } i++; continue; }
+    if (c === '{') { if (depth === 0) open = i; depth++; }
+    else if (c === '}') { if (depth > 0 && --depth === 0) { out.push({ sel: css.slice(start, open).replace(/\/\*[\s\S]*?\*\//g, '').trim(), body: css.slice(open + 1, i) }); start = i + 1; } }
+    else if (c === ';' && depth === 0) start = i + 1;
+    i++;
+  }
+  return out;
+}
 function parseSty(text) {
   const sty = { desktop: {}, tablet: {}, phone: {} };
-  text = (text || '').replace(/\/\*[\s\S]*?\*\//g, '');
-  const media = /@media\s*\(max-width:\s*(\d+)px\)\s*\{([\s\S]*?)\n?\}\s*(?=@media|$)/g;
-  let rest = text, m;
-  while ((m = media.exec(text))) {
-    const dev = +m[1] <= MEDIA.phone ? 'phone' : 'tablet';
-    for (const r of m[2].matchAll(/([^{}]+)\{([^{}]*)\}/g)) sty[dev][r[1].trim()] = parseDecls(r[2]);
-    rest = rest.replace(m[0], '');
+  for (const b of cssBlocks(text || '')) {
+    const m = b.sel.match(/^@media[^{]*max-width\s*:\s*(\d+)px/i);
+    if (m) { const dev = +m[1] <= MEDIA.phone ? 'phone' : 'tablet'; for (const r of cssBlocks(b.body)) sty[dev][r.sel] = parseDecls(r.body); }
+    else if (!b.sel.startsWith('@')) sty.desktop[b.sel] = parseDecls(b.body);
   }
-  for (const r of rest.matchAll(/([^{}]+)\{([^{}]*)\}/g)) sty.desktop[r[1].trim()] = parseDecls(r[2]);
   return sty;
 }
 function loadSty() {
@@ -363,7 +505,7 @@ function getSty(sel, prop, dev = S.device) {
 }
 function putSty(sel, props, dev = S.device) {
   const r = S.sty[dev][sel] || (S.sty[dev][sel] = {});
-  for (const [p, v] of Object.entries(props)) { if (v === '' || v == null) delete r[p]; else r[p] = v; }
+  for (const [p, v] of Object.entries(props)) { if (v === '' || v == null) delete r[p]; else if (safeVal(v) != null && /^-?[a-z-]+$/i.test(p)) r[p] = v; }
   if (!Object.keys(r).length) delete S.sty[dev][sel];
 }
 function writeSty() { setText(SE_CSS, genSty(), !S.files.has(SE_CSS)); }
@@ -396,20 +538,28 @@ function applyOwn(s, props, opts = {}) {
 }
 
 /* ============ 6. Actions, undo, history, shared parts ============ */
-function snapshot(label) {
+/* A restore point before an action. Text files are kept by reference (strings never change in
+   place), so only the pages that might change are copied: this page, pages already changed,
+   and pages sharing a part with this one, or every page for actions that touch them all. */
+function snapshot(label, allDocs) {
   const css = [];
-  for (const [p, f] of S.files) if (isCss(p) || /\.js$/i.test(p)) css.push([p, f.text, f.dirty]);
+  for (const [p, f] of S.files) if (f.kind === 'text' && !isPage(p)) css.push([p, f.text, f.dirty]);
   const docs = [];
-  for (const [p, d] of S.docs) if (p === S.page || S.files.get(p) && S.files.get(p).dirty) docs.push([p, serializeDoc(d, true), !!(S.files.get(p) || {}).dirty]);
+  const names = [...getDoc(S.page).querySelectorAll('[data-se-shared]')].map(e => e.getAttribute('data-se-shared'));
+  for (const [p, d] of S.docs) {
+    const f = S.files.get(p) || {};
+    if (allDocs || p === S.page || f.dirty || names.some(n => d.querySelector(`[data-se-shared="${CSS.escape(n)}"]`))) docs.push([p, serializeDoc(d, true), !!f.dirty]);
+  }
   return { label, page: S.page, sel: S.sel, docs, css, keys: [...S.files.keys()], changes: S.changes.length };
 }
 function restore(snap) {
   for (const [p, html, dirty] of snap.docs) {
     const d = new DOMParser().parseFromString(html, 'text/html'); assignIds(d);
-    S.docs.set(p, d); const f = S.files.get(p); if (f) f.dirty = dirty;
+    S.docs.set(p, d); markDoc(p); const f = S.files.get(p); if (f) f.dirty = dirty;
   }
-  for (const [p, text, dirty] of snap.css) { const cf = S.files.get(p); if (cf && cf.text !== text) { cf.text = text; S.cssVer.set(p, (S.cssVer.get(p) || 0) + 1); } if (cf) cf.dirty = dirty; }
-  for (const k of [...S.files.keys()]) if (!snap.keys.includes(k)) S.files.delete(k);
+  for (const [p, text, dirty] of snap.css) { const cf = S.files.get(p); if (cf && cf.text !== text) { cf.text = text; cf.v = (cf.v || 0) + 1; S.cssVer.set(p, (S.cssVer.get(p) || 0) + 1); } if (cf) cf.dirty = dirty; }
+  for (const k of [...S.files.keys()]) if (!snap.keys.includes(k)) { S.files.delete(k); (S.removedKeys || (S.removedKeys = [])).push('f:' + k, 'd:' + k); }
+  S.fv++;
   if (!snap.keys.includes(SE_CSS)) S.sty = { desktop: {}, tablet: {}, phone: {} }; else loadSty();
   S.changes.length = Math.min(S.changes.length, snap.changes);
   if (S.page !== snap.page) { S.page = snap.page; if (!S.tabs.includes(snap.page)) S.tabs.push(snap.page); }
@@ -429,7 +579,7 @@ function syncShared(before) {
       if (!t) continue;
       const tmp = d.createElement('template'); tmp.innerHTML = html;
       const n = tmp.content.firstElementChild; if (!n) continue;
-      t.replaceWith(n); assignIds(d);
+      t.replaceWith(n); assignIds(d); markDoc(p);
       const f = S.files.get(p); if (f) f.dirty = true;
       touched++;
     }
@@ -438,11 +588,12 @@ function syncShared(before) {
 }
 function act(label, fn, opts = {}) {
   if (S.editing && !opts.fromEdit) finishTextEdit();
-  S.undo.push(snapshot(label)); if (S.undo.length > 80) S.undo.shift();
+  S.undo.push(snapshot(label, opts.allDocs)); if (S.undo.length > 80) S.undo.shift();
   S.redo = [];
   const before = sharedState(getDoc(S.page));
   const res = fn();
   const f = S.files.get(S.page); if (f && opts.pageDirty !== false) f.dirty = true;
+  markDoc(S.page); if (opts.allDocs) for (const p of S.docs.keys()) markDoc(p);
   const shared = syncShared(before);
   logChange(label + (opts.devLabel === false ? '' : DEV_LABEL[S.device] || ''), shared ? 'Every page with this shared part' : (opts.where || pageName(S.page)));
   if (opts.render !== false || res === true) renderFrame();
@@ -456,8 +607,20 @@ function logChange(text, where) {
   if (last && last.text === text && last.where === where) return;
   S.changes.push({ text, where, at: Date.now() });
 }
-function undo() { if (!S.undo.length) return toast('Nothing to undo'); const snap = S.undo.pop(); S.redo.push(Object.assign(snapshot(snap.label))); restore(snap); scheduleSave(); }
-function redo() { if (!S.redo.length) return toast('Nothing to redo'); const snap = S.redo.pop(); S.undo.push(snapshot(snap.label)); restore(snap); scheduleSave(); }
+/* Undo or redo several steps with a single redraw (History panel jumps use this) */
+function undo(n = 1) {
+  n = Math.min(n, S.undo.length); if (!n) return toast('Nothing to undo');
+  const len = S.undo.length, cur = snapshot(null, true);
+  for (let k = len - 1; k >= len - n; k--) S.redo.push(Object.assign({}, k === len - 1 ? cur : S.undo[k + 1], { label: S.undo[k].label }));
+  const target = S.undo[len - n]; S.undo.length = len - n;
+  restore(target); scheduleSave();
+}
+function redo(n = 1) {
+  n = Math.min(n, S.redo.length); if (!n) return toast('Nothing to redo');
+  let prev = snapshot(null, true);
+  for (let i = 0; i < n; i++) { const r = S.redo.pop(); S.undo.push(Object.assign({}, prev, { label: r.label })); prev = r; }
+  restore(prev); scheduleSave();
+}
 function updateCount() { const n = S.changes.length, c = $('#changeCount'); c.hidden = !n; c.textContent = n; }
 
 /* ============ 7. Site stylesheets ============ */
@@ -502,7 +665,7 @@ function mainSheet(create) {
   const any = [...S.files.keys()].find(isCss); if (any) return any;
   if (!create) return null;
   const p = 'site-editor.css';
-  setText(p, '/* Styles added by Site Editor */\n', true);
+  setText(p, '/* Styles added by Orbyt Designs */\n', true);
   const doc = getDoc(S.page), l = doc.createElement('link');
   l.rel = 'stylesheet'; l.href = relPath(S.page, p); doc.head.appendChild(l);
   return p;
@@ -512,10 +675,15 @@ function sheetWithRule(selector) {
   return order.find(p => findRule(fileText(p) || '', selector)) || null;
 }
 
+/* Swaps in the new stylesheet, then drops the temporary inline styles used while dragging */
 function refreshCss(path) {
   const d = fdoc(); if (!d) return;
-  for (const l of d.querySelectorAll(`link[data-se-css="${CSS.escape(path)}"]`)) l.href = cssUrl(path);
-  setTimeout(() => { if (typeof drawSelection === 'function') drawSelection(); }, 60);
+  const links = [...d.querySelectorAll(`link[data-se-css="${CSS.escape(path)}"]`)];
+  const pending = S.pendingClear.splice(0);
+  const clear = () => { pending.forEach(([el, ps]) => ps.forEach(p => el.style.removeProperty(p))); drawSelection(); if (S.tlOpen) tlScrub(); };
+  if (!links.length) clear();
+  for (const l of links) { l.onload = clear; l.href = cssUrl(path); }
+  setTimeout(drawSelection, 80);
 }
 const PX_PROPS = new Set(['font-size', 'letter-spacing', 'width', 'height', 'padding', 'border-radius', 'border-width', 'margin', 'gap', 'max-width', 'left', 'top', 'right', 'bottom', 'min-height']);
 function normVal(prop, v) {
@@ -524,16 +692,21 @@ function normVal(prop, v) {
   return v;
 }
 /* Style edits from the panels: respects "every one like this", the screen size and Normal/Hover/Pressed */
-function setStyle(prop, value, label, extra = {}) {
+function setStyle(prop, value, label) {
   const s = sEl(S.sel); if (!s) return;
   const props = typeof prop === 'object' ? prop : { [prop]: normVal(prop, value) };
+  for (const v of Object.values(props)) if (safeVal(v) == null) { toast('That value can’t be used. Type a number, a size like 12px, or pick a color.'); return; }
   const cls = mainClass(s);
   if (S.scope === 'all' && cls) {
     if (S.device === 'desktop' && S.state === 'normal') {
       const sel = '.' + cls, path = sheetWithRule(sel) || mainSheet(true);
+      const key = keyOf(s, false);
       act(`Changed the ${label} of every ${pretty(cls).toLowerCase()}`, () => {
         for (const [p, v] of Object.entries(props)) setDecl(path, sel, p, v);
+        /* This one's own value would hide the shared change, so drop it */
+        if (key) { putSty(selOf(key), Object.fromEntries(Object.keys(props).map(p => [p, ''])), 'desktop'); writeSty(); }
       }, { render: false, where: 'Every page', pageDirty: false, cssPath: path });
+      if (key) refreshCss(SE_CSS);
     } else {
       act(`Changed the ${label} of every ${pretty(cls).toLowerCase()}${S.state !== 'normal' ? ` (${S.state === 'hover' ? 'hovered' : 'pressed'})` : ''}`, () => {
         putSty(stateSel('.' + cls, S.state), props); writeSty(); return ensureStyLink();
@@ -543,7 +716,6 @@ function setStyle(prop, value, label, extra = {}) {
     act(`Changed the ${label} of ${nameOf(s)}${S.state !== 'normal' ? ` (${S.state === 'hover' ? 'hovered' : 'pressed'})` : ''}`, () => applyOwn(s, props, { state: S.state }),
       { render: false, cssPath: SE_CSS });
   }
-  Object.assign(extra, {});
 }
 function teamColors() {
   const out = [], seen = new Set();
@@ -555,7 +727,7 @@ function teamColors() {
       const body = css.slice(r.open + 1, r.close).replace(/\/\*[\s\S]*?\*\//g, '');
       for (const m of body.matchAll(/(--[\w-]+)\s*:\s*([^;]+);?/g)) {
         const v = m[2].trim();
-        if (!/^(#[0-9a-f]{3}|#[0-9a-f]{6}|rgb\(|hsl\()/i.test(v) && !/^(rgba|hsla)\([^)]*[,\/]\s*1(\.0+)?\s*\)$/i.test(v) || seen.has(m[1])) continue;
+        if (!/^(#[0-9a-f]{3}|#[0-9a-f]{6})$|^rgb\(|^hsl\(/i.test(v) && !/^(rgba|hsla)\([^)]*[,\/]\s*1(\.0+)?\s*\)$/i.test(v) || seen.has(m[1])) continue;
         seen.add(m[1]); out.push({ prop: m[1], name: pretty(m[1]), value: v, path: p });
       }
     }
@@ -594,3 +766,16 @@ function resolvedHex(value) {
 }
 
 
+
+teamColors = memo(teamColors);
+teamFonts = memo(teamFonts);
+const _hexCache = new Map(); let _hexV = -1;
+const _resolvedHex = resolvedHex;
+resolvedHex = v => { if (_hexV !== S.fv) { _hexCache.clear(); _hexV = S.fv; } if (!_hexCache.has(v)) _hexCache.set(v, _resolvedHex(v)); return _hexCache.get(v); };
+
+/* Countdown defaults live here because the canvas, panels and runtime all use them */
+function defaultCountdown() {
+  const d = new Date(Date.now() + 30 * 86400000); d.setHours(9, 0, 0, 0);
+  return { show: 'd', label: 'Counting down to', queue: [{ name: 'Next event', date: localISO(d) }], auto: true, upnext: true, zero: 'day', zeroText: 'Happening now!', after: 'hide', afterText: 'See you next season' };
+}
+function localISO(d) { const p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; }

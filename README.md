@@ -1,85 +1,75 @@
-# Site Editor (v2)
+# Orbyt Designs
 
-A visual editor for plain HTML/CSS websites, laid out like Photoshop. Open your site, change it like a design file, and download the updated files.
+The website editor your whole team builds with.
 
-## Run it
+## What's in this folder
 
-Host this folder anywhere that serves static files, like its own GitHub repo with GitHub Pages. Open the page and pick your site's folder or a ZIP of it. Everything stays in your browser and saves automatically.
+| File | What it is |
+|---|---|
+| `index.html` | Welcome page that explains Orbyt |
+| `signin.html` | Sign in with a link sent to your email (no passwords) |
+| `app.html`, `app.js`, `app.css` | Your team: sites, members, roles, invites, settings |
+| `editor.html` + `core.js`, `canvas.js`, `panels.js`, `io.js`, `editor.css` | The editor |
+| `cloud.js` | Loads a team's site, saves changes to the team, page locking |
+| `runtime.js` | Powers countdowns, pop-ups and animations on published sites |
+| `privacy.html`, `terms.html` | Plain-language privacy and terms pages |
+| `config.js` | Your Supabase project address and public key |
+| `supabase.sql` | Database setup (run once) |
+| `orbyt.js`, `site.css` | Shared helpers and brand styles |
+| `vendor/` | Bundled libraries (Supabase, JSZip) so nothing loads from outside sites |
+| `favicon.svg`, `og-image.png` | Tab icon and the picture shown when the link is shared |
 
-## The layout
+## One-time setup (about 10 minutes)
 
-- **Menu bar:** File, Edit, Insert, Layer, View, Window.
-- **Options bar:** shows settings for the current tool or selection.
-- **Tool strip:** tools are grouped. A small triangle means more tools; right-click or hold to see them.
-  - Select (V) / Select group (A)
-  - Rectangle (M) / Ellipse (U) / Line (L)
-  - Text (T)
-  - Image (I) / Embed code
-  - Pivot point (O)
-  - Hand (H)
-  - Zoom (Z)
-- **Panels:** docked on the right in tabbed groups.
-  - Drag a tab to another group, or to the empty strip at the bottom to make a new group.
-  - Collapse a group with its arrow, or close a panel with ×.
-  - The **Window** menu brings panels back, turns on Compact panels (icons only), saves your layout, or resets to Essentials.
-- **Rulers and zoom:** the rulers highlight where the selection sits. Use ⌘/Ctrl + and −, ⌘0 to fit, ⌘1 for actual size, or ⌘/Ctrl + scroll. Hold Space to pan.
-- **Floating action bar:** appears under whatever you select, with Turn into, Link, Motion, Lock, Duplicate and More. Right-click gives the full menu.
+### 1. Set up the database
+1. In Supabase, open your project and go to **SQL Editor → New query**.
+2. Paste in everything from `supabase.sql` and click **Run**.
+3. It should finish with "Success. No rows returned." You can run it again later; it only adds what's missing.
 
-## Free placement
+### 2. Put the site online
+1. Make a new GitHub repo, for example `orbyt`.
+2. Upload everything in this folder (not the folder itself) and commit.
+3. **Settings → Pages:** Source "Deploy from a branch," branch `main`, folder `/ (root)`. Save.
+4. After a minute your address appears, like `https://yourname.github.io/orbyt/`.
 
-Everything can go anywhere, like Photoshop.
+### 3. Tell Supabase where the site lives
+In Supabase go to **Authentication → URL Configuration**:
+- **Site URL:** your address from step 2, like `https://yourname.github.io/orbyt/`
+- **Redirect URLs:** add `https://yourname.github.io/orbyt/**`
 
-- **Dragging:** drag anything to move it. The first time you drag something, it and the things around it get pinned to exactly where they are, so nothing jumps. **Layer → Free-place everything on this page** does a whole page at once.
-- **Snapping and resizing:** pink guides snap to edges and centers (hold Alt to skip snapping). Resize with the handles, and Shift keeps the shape.
-- **Fine moves:** arrow keys nudge by 1px, Shift + arrow by 10px.
-- **Stacking:** Layers order controls what's in front. Higher in the list means in front. Drag rows to restack, or drop onto the middle of a row to put something inside it.
-- **Screen sizes:** switch Desktop / Tablet / Phone at the top. Changes made in Tablet view apply to tablets and phones; Phone view changes apply to phones only. **Stack what's inside** lines things up top to bottom for small screens.
+Sign-in links only work for addresses listed there.
 
-## Layers
+### 4. Optional
+- **Contact email:** put yours in `config.js` (`contactEmail`) so the Privacy page shows it.
+- **More sign-in emails:** Supabase's built-in email sender only sends a few emails per hour. That's fine for one team. If more people join, connect your own email service under **Authentication → Emails → SMTP Settings**.
+- **Futura PT:** the pages use Jost, a free look-alike, unless Futura PT is installed. To use the real font on the live site, make an Adobe Fonts web project and add its stylesheet link to the pages.
 
-Each row has:
-- **Eye:** hides it everywhere, including the published site.
-- **Ghost:** vanishes it only while you edit, so you can reach what's underneath.
-- **Lock:** click to cycle Locked → Position locked → Unlocked. Locked things can't be clicked on the page; clicks pass through to what's underneath. Position-locked things can still be restyled but not moved, resized or deleted.
-- **Rename:** double-click a name.
+## First run
+1. Open your site's address and click **Get started**.
+2. Type your email, open the link that arrives **on the same device**, and you're in.
+3. Name your team, then **Add a site** and upload your team website's folder or ZIP.
+4. **Members → Invite someone** makes a link to send to each teammate.
 
-## Building blocks (right-click → Turn into, or Insert)
+## Who can do what
 
-- **Button:** pick where it goes: a page, a website, a file, an email address, or a pop-up.
-- **Countdown:** show days, days + hours, or down to the second. Queue dates so the next one starts when one ends.
-- **Pop-up:** stays hidden until a button opens it. Visitors close it with ×, Esc, or by clicking outside it.
-- **Expanding row:** a title that opens to show more, optionally with a PDF inside that only loads when opened.
-- **Section tabs:** a list of the page's sections that highlights the one on screen as visitors scroll.
-- **Embed code:** paste a form, map or video embed. It shows as a placeholder while editing and works in Preview.
+| | Owner | Admin | Editor | Viewer |
+|---|---|---|---|---|
+| Look at sites | ✓ | ✓ | ✓ | ✓ |
+| Edit pages and photos | ✓ | ✓ | ✓ | |
+| Team colors and fonts | ✓ | ✓ | switch | |
+| Schedule and lists (Data panel) | ✓ | ✓ | switch | |
+| Download the site | ✓ | ✓ | switch | |
+| Invite people, change roles | ✓ | ✓ | | |
+| Make someone an admin | ✓ | | | |
+| Delete a site | ✓ | ✓ | | |
+| Delete the team | ✓ | | | |
 
-## Look and motion
+Editors' switches are on by default; turn them off per person on the Members tab. You can also limit someone to certain pages with **Pages…**.
 
-- **Fill:** none, a solid team color, or a gradient (direction, angle, and any number of colors).
-- **Hovered and Pressed looks:** pick the state, then change anything.
-- **Quick effects:** fade, slide, grow, spin (either direction, exact seconds), float, pulse, and flowing color for gradients.
-- **Timeline:** turn on Record moves, move the playhead, and use the sliders. Each change becomes a step, and motion is smoothed automatically.
+**One person edits a page at a time.** If a teammate is on a page, you can look, ask them to hand it over, or edit a different page. A page frees up when they leave or after 10 quiet minutes.
 
-## Panels
+## How your team's things stay private
+Every table has row-level security, so the database checks "is this person on this team, and does their role allow this?" on every request. Hiding buttons in the editor is only for clarity; even someone who tampers with the page can't read or change another team's sites. Files are stored privately as `team id / site id / file`, and writes are checked against the team.
 
-- **Properties:** name, apply to just this one or every one like it, position and size, pinning to the screen, show or hide per screen size, look, motion, lock, and sharing.
-- **Character:** words, your site's own text styles, font, size, weight, spacing, alignment, capitals, and color.
-- **Pages:** switch pages or make a new one.
-- **History:** click any step to jump back to it.
-- **Team Kit:** your colors and fonts. Click a color to change it everywhere; + adds a color or any Google Font.
-- **Data:** edits lists inside your site's scripts, like `COMP_SCHEDULE`, without touching code.
-- **Shared parts:** Edit → Make shared. It finds the same thing on your other pages and links them. After that, editing it on one page changes every page.
-
-## Getting changes live
-
-Click **Download** to see every change in plain words, then get a ZIP of what changed (or the whole site). Upload what's inside to your host.
-
-The ZIP may include:
-- **`se-styles.css`:** where the editor keeps positions and "just this one" styles. Pages link it automatically.
-- **`se-widgets.js` and `se-widgets.css`:** what makes countdowns, pop-ups, expanding rows, section tabs and animations work.
-
-## Good to know
-
-- While editing, your site's own scripts are paused so they can't fight the editor. Use **Preview** to see them running.
-- Free-placed layouts don't reflow. If text gets longer or the screen is narrower, things can overlap, so check Tablet and Phone views.
-- Pages you change are rewritten when downloaded; pages you don't touch stay exactly as they were.
-- Still to come: an interactions system (follow the cursor, step-by-step sequences, rigs like the robot arm), and accounts, teams and live editing together.
+## The editor without an account
+`editor.html` on its own still works like before: open a site folder or ZIP from your computer. Your work is saved in that browser only.

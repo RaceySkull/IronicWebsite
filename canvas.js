@@ -1,4 +1,4 @@
-/* Site Editor v2 — canvas
+/* Orbyt Designs v2 — canvas
    Frame size and zoom, rulers, picking and selecting, free placement
    (drag, resize, snapping), inserting, the floating action bar, the
    right-click menu, tools and keyboard shortcuts. */
@@ -41,7 +41,8 @@ $('#zoomBtn').onclick = e => {
   showFlyout(e.currentTarget, [['Fit to window', () => setZoom('fit')], ['50%', () => setZoom(0.5)], ['75%', () => setZoom(0.75)], ['100%', () => setZoom(1)], ['150%', () => setZoom(1.5)], ['200%', () => setZoom(2)]], 'up');
 };
 function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
-function drawRulers() {
+function drawRulers() { if (drawRulers.q) return; drawRulers.q = requestAnimationFrame(() => { drawRulers.q = 0; drawRulersNow(); }); }
+function drawRulersNow() {
   const h = $('#rulerH'), v = $('#rulerV'), box = $('#frameBox');
   if (!h || !box.offsetWidth) return;
   const dpr = window.devicePixelRatio || 1, z = S.z;
@@ -71,7 +72,7 @@ function drawRulers() {
     const el = rEl(S.sel);
     if (el) {
       const er = el.getBoundingClientRect();
-      c.fillStyle = 'rgba(240,90,40,0.25)';
+      c.fillStyle = 'rgba(202,55,77,0.25)';
       if (horiz) c.fillRect(br.left - r.left + er.left * z, 0, er.width * z, r.height);
       else c.fillRect(0, br.top - r.top + er.top * z, r.width, er.height * z);
     }
@@ -109,6 +110,9 @@ function onFrameLoad() {
   d.addEventListener('keydown', onKey, true);
   d.addEventListener('keyup', onKeyUp, true);
   d.addEventListener('submit', e => e.preventDefault(), true);
+  d.addEventListener('wheel', e => onWheel(e, true), { passive: false, capture: true });
+  d.addEventListener('dragover', onFrameDragOver, true);
+  d.addEventListener('drop', onFrameDrop, true);
   d.addEventListener('toggle', e => { const t = e.target; if (t.tagName === 'DETAILS') { const id = t.getAttribute('data-se-id'); if (t.open) S.openDetails.add(id); else S.openDetails.delete(id); } }, true);
   w.addEventListener('resize', drawSelection);
   setBodyToolClass();
@@ -117,7 +121,7 @@ function onFrameLoad() {
 }
 function setBodyToolClass() {
   const d = fdoc(); if (!d || !d.body) return;
-  d.body.classList.toggle('se-tool-insert', ['rect', 'ellipse', 'line', 'text', 'image', 'pivot', 'zoom'].includes(S.tool));
+  d.body.classList.toggle('se-tool-insert', ['rect', 'ellipse', 'line', 'text', 'frame', 'image', 'pivot', 'zoom'].includes(S.tool));
   d.body.classList.toggle('se-tool-hand', S.tool === 'hand' || S.spaceHand);
 }
 
@@ -164,7 +168,8 @@ function drawBox(kind, target, label) {
 }
 function drawSelection() {
   const el = rEl(S.sel);
-  drawBox('sel', el, el ? nameOf(sEl(S.sel)) : '');
+  drawBox('sel', S.multi.length ? null : el, el ? nameOf(sEl(S.sel)) : '');
+  drawMulti();
   const piv = ui('pivot');
   if (piv) {
     if (S.tlOpen && el) {
@@ -176,6 +181,35 @@ function drawSelection() {
   }
   placeCtxBar(); drawRulers();
 }
+function drawMulti() {
+  const d = fdoc(); if (!d) return;
+  for (const o of d.querySelectorAll('[data-se-ui^="m:"]')) o.remove();
+  if (!S.multi.length) return;
+  for (const id of S.multi) {
+    const r = rEl(id); if (!r) continue;
+    const b = r.getBoundingClientRect(), o = d.createElement('div');
+    o.setAttribute('data-se-ui', 'm:' + id); o.className = 'se-ui-sel';
+    Object.assign(o.style, { left: b.left + 'px', top: b.top + 'px', width: b.width + 'px', height: b.height + 'px' });
+    d.documentElement.appendChild(o);
+  }
+  const u = multiBounds(); if (!u) return;
+  const tag = d.createElement('div'); tag.setAttribute('data-se-ui', 'm:tag'); tag.className = 'se-ui-tag';
+  Object.assign(tag.style, { position: 'fixed', left: u.left + 'px', top: Math.max(0, u.top - 24) + 'px' });
+  tag.textContent = `${S.multi.length} selected`; d.documentElement.appendChild(tag);
+}
+function multiBounds() {
+  const rs = S.multi.map(rEl).filter(Boolean).map(r => r.getBoundingClientRect()); if (!rs.length) return null;
+  const l = Math.min(...rs.map(r => r.left)), t = Math.min(...rs.map(r => r.top)), rr = Math.max(...rs.map(r => r.right)), b = Math.max(...rs.map(r => r.bottom));
+  return { left: l, top: t, right: rr, bottom: b, width: rr - l, height: b - t };
+}
+/* Shift-click adds or removes things from the selection */
+function toggleMulti(id) {
+  if (!S.multi.length && S.sel && S.sel !== id) S.multi = [S.sel];
+  if (S.multi.includes(id)) S.multi = S.multi.filter(x => x !== id); else S.multi.push(id);
+  if (S.multi.length === 1) { const only = S.multi[0]; S.multi = []; select(only); return; }
+  S.sel = S.multi[S.multi.length - 1] || null;
+  drawSelection(); renderAll();
+}
 function onHover(e) {
   if (S.editing || S.dragging) return;
   const t = pickAt(e.clientX, e.clientY, { group: S.tool === 'direct' });
@@ -186,6 +220,7 @@ function onHover(e) {
 function select(id, opts = {}) {
   if (S.editing) finishTextEdit();
   if (id === 'body') id = null;
+  if (!opts.keepMulti) S.multi = [];
   const changed = id !== S.sel;
   S.sel = id;
   if (changed) {
@@ -211,6 +246,7 @@ function nameOf(el) {
   if (el.hasAttribute('data-se-shared')) return el.getAttribute('data-se-shared');
   if (el.classList.contains('se-countdown')) kind = 'Countdown';
   else if (el.classList.contains('se-embed')) kind = 'Embed';
+  else if (el.classList.contains('se-frame')) kind = 'Photo frame';
   else if (el.hasAttribute('data-se-tabs')) kind = 'Section tabs';
   else if (el.classList.contains('se-shape')) kind = el.classList.contains('se-ellipse') ? 'Ellipse' : el.classList.contains('se-line') ? 'Line' : 'Rectangle';
   else if (tag === 'details') kind = 'Expanding row';
@@ -221,7 +257,6 @@ function nameOf(el) {
     form: 'Form', input: 'Field', textarea: 'Field', select: 'Dropdown', label: 'Label', iframe: 'Embedded page', video: 'Video', table: 'Table', figure: 'Figure', figcaption: 'Caption', canvas: 'Animation area' })[tag] || 'Box';
   let detail = cls && !/^se-|^type-/.test(cls) ? pretty(cls) : '';
   if (!detail && el.id) detail = pretty(el.id);
-  if (!detail && el.getAttribute && el.getAttribute('class') && (el.getAttribute('class') || '').match(/\b(j\d|ft|fb)\b/)) detail = el.getAttribute('class');
   const text = (el.textContent || '').trim().replace(/\s+/g, ' ');
   if (!detail && text && text.length < 40 && !['section', 'nav', 'main', 'header', 'footer', 'ul', 'ol', 'details'].includes(tag)) detail = '“' + text + '”';
   if (tag === 'details') { const s = el.querySelector('summary'); if (s) detail = '“' + s.textContent.trim().slice(0, 30) + '”'; }
@@ -240,7 +275,7 @@ function isFree(r) { const p = rpos(r); return p === 'absolute' || p === 'fixed'
 /* The element that actually moves: climbs out of text so words never get pulled apart */
 function movableOf(r) {
   let el = r;
-  while (el.parentElement && el.parentElement.tagName !== 'BODY' && (hasDirectText(el.parentElement) || ['SUMMARY', 'svg', 'g'].includes(el.parentElement.tagName) && false)) el = el.parentElement;
+  while (el.parentElement && el.parentElement.tagName !== 'BODY' && hasDirectText(el.parentElement)) el = el.parentElement;
   return el;
 }
 function textish(r) { return !r.children.length || hasDirectText(r) || /^(P|H[1-6]|SPAN|A|LABEL|LI|BUTTON|SUMMARY)$/.test(r.tagName); }
@@ -328,12 +363,14 @@ function onCanvasDown(e) {
   if (S.tool === 'hand' || S.spaceHand) { startPan(e); return; }
   if (S.tool === 'zoom') { zoomStep(e.altKey ? -1 : 1); return; }
   if (S.tool === 'pivot') { setPivotFromClick(e); return; }
-  if (['rect', 'ellipse', 'line', 'text'].includes(S.tool)) { insertAt(e.clientX, e.clientY, S.tool); return; }
+  if (['rect', 'ellipse', 'line', 'text', 'frame'].includes(S.tool)) { insertAt(e.clientX, e.clientY, S.tool); return; }
   if (S.tool === 'image') { const pt = { x: e.clientX, y: e.clientY }; pickMedia('image', p => insertImage(pt, p)); setTool('select'); return; }
   let t = pickAt(e.clientX, e.clientY, { group: S.tool === 'direct' });
-  const cur = rEl(S.sel);
-  if (!t) { select(null); return; }
+  if (S.cropping) { if (t && t.closest('.se-frame') === rEl(S.cropping)) { startCropPan(e); return; } endCrop(); }
+  if (!t) { startMarquee(e); return; }
   const id = t.getAttribute('data-se-id');
+  if (e.shiftKey) { toggleMulti(movableOf(t).getAttribute('data-se-id')); return; }
+  if (S.multi.length && S.multi.some(m => { const r = rEl(m); return r && (r === t || r.contains(t)); })) { startGroupMove(e); return; }
   if (id !== S.sel) select(id);
   startMove(e, t);
 }
@@ -481,25 +518,12 @@ function nudge(dx, dy) {
   S.pendingClear.push([m, ['left', 'top']]);
   act(`Nudged ${nameOf(sEl(m.getAttribute('data-se-id')))}`, () => applyOwn(sEl(m.getAttribute('data-se-id')), { left: Math.round(L) + 'px', top: Math.round(T) + 'px' }), { render: false, cssPath: SE_CSS });
 }
-/* After a stylesheet reload, drop the temporary inline styles used while dragging */
-const _refreshCss = refreshCss;
-refreshCss = function (path) {
-  const d = fdoc(); if (!d) return;
-  const links = [...d.querySelectorAll(`link[data-se-css="${CSS.escape(path)}"]`)];
-  const pending = S.pendingClear.splice(0);
-  if (!links.length) { pending.forEach(([el, ps]) => ps.forEach(p => el.style.removeProperty(p))); }
-  for (const l of links) {
-    l.onload = () => { pending.forEach(([el, ps]) => ps.forEach(p => el.style.removeProperty(p))); drawSelection(); if (S.tlOpen) tlScrub(); };
-    l.href = cssUrl(path);
-  }
-  setTimeout(drawSelection, 80);
-};
-
 /* ---------- Text editing ---------- */
 function onCanvasDbl(e) {
   e.preventDefault();
   const t = pickAt(e.clientX, e.clientY); if (!t) return;
   if (t.tagName === 'DETAILS' || t.tagName === 'SUMMARY') { const d = t.closest('details'); d.open = !d.open; return; }
+  const fr = t.closest('.se-frame'); if (fr) { if (S.cropping) endCrop(); else startCrop(fr.getAttribute('data-se-id')); return; }
   startTextEdit(t.getAttribute('data-se-id'));
 }
 function canEditText(el) {
@@ -552,10 +576,10 @@ function insertAt(cx, cy, kind, html) {
   const d = fdoc(); if (!d) return;
   const box = containerAt(cx, cy), br = box.getBoundingClientRect();
   const sPar = box === d.body ? getDoc(S.page).body : sEl(box.getAttribute('data-se-id'));
-  const x = Math.max(0, Math.round(cx - br.left)), y = Math.max(0, Math.round(cy - br.top + (box === d.body ? fwin().scrollY : 0) - (box === d.body ? fwin().scrollY : 0)));
+  const x = Math.max(0, Math.round(cx - br.left)), y = Math.max(0, Math.round(cy - br.top));
   const doc = getDoc(S.page); let id;
   const parentNeedsPos = fwin().getComputedStyle(box).position === 'static';
-  const label = { rect: 'Added a rectangle', ellipse: 'Added an ellipse', line: 'Added a line', text: 'Added text', image: 'Added an image', countdown: 'Added a countdown', expand: 'Added an expanding row', embed: 'Added embedded content', tabs: 'Added section tabs' }[kind];
+  const label = { frame: 'Added a photo frame', rect: 'Added a rectangle', ellipse: 'Added an ellipse', line: 'Added a line', text: 'Added text', image: 'Added an image', countdown: 'Added a countdown', expand: 'Added an expanding row', embed: 'Added embedded content', tabs: 'Added section tabs' }[kind];
   act(label, () => {
     let el; const firstColor = (teamColors()[0] || {}).prop;
     const look = { position: 'absolute', left: x + 'px', top: y + 'px', margin: '0', 'box-sizing': 'border-box' };
@@ -579,19 +603,21 @@ function insertAt(cx, cy, kind, html) {
     } else if (kind === 'embed') {
       el = doc.createElement('div'); el.className = 'se-embed'; el.innerHTML = html || '';
       Object.assign(look, { width: '480px', 'min-height': '160px' });
+    } else if (kind === 'frame') {
+      el = doc.createElement('div'); el.className = 'se-frame';
+      Object.assign(look, { width: '240px', height: '320px', overflow: 'hidden' });
+      if (html) { const img = doc.createElement('img'); img.setAttribute('src', relPath(S.page, html)); img.setAttribute('alt', ''); el.appendChild(img); }
     } else if (kind === 'image') {
       el = doc.createElement('img'); el.setAttribute('src', relPath(S.page, html)); el.setAttribute('alt', '');
       Object.assign(look, { width: '320px', height: 'auto' });
     }
     sPar.appendChild(el); assignIds(doc); id = el.getAttribute('data-se-id');
-    if (parentNeedsPos && sPar !== doc.body) applyOwn(sPar, { position: 'relative' }, { device: 'desktop' });
-    if (parentNeedsPos && sPar === doc.body) applyOwn(sPar, { position: 'relative' }, { device: 'desktop' });
+    if (parentNeedsPos) applyOwn(sPar, { position: 'relative' }, { device: 'desktop' });
     applyOwn(el, look);
     return true;
   });
   setTool('select');
   setTimeout(() => {
-    if (kind === 'countdown') S.tab = 'widget';
     select(id);
     if (kind === 'text') setTimeout(() => startTextEdit(id), 80);
   }, 120);
@@ -603,12 +629,6 @@ function insertCenter(kind, html) {
   if (r && CONTAINERS.has(r.tagName)) { const b = r.getBoundingClientRect(); insertAt(b.left + 24, b.top + 24, kind, html); return; }
   insertAt(fwin().innerWidth / 2 - 120, Math.min(fwin().innerHeight / 2, 240), kind, html);
 }
-function defaultCountdown() {
-  const d = new Date(Date.now() + 30 * 86400000); d.setHours(9, 0, 0, 0);
-  return { show: 'd', label: 'Counting down to', queue: [{ name: 'Next event', date: localISO(d) }], auto: true, upnext: true, zero: 'day', zeroText: 'Happening now!', after: 'hide', afterText: 'See you next season' };
-}
-function localISO(d) { const p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; }
-
 /* ---------- Structure edits ---------- */
 function canChange(s, what) {
   if (!s) return false;
@@ -635,6 +655,12 @@ function duplicateSel() {
     s.after(c); assignIds(getDoc(S.page)); id = c.getAttribute('data-se-id');
   }, { devLabel: false });
   setTimeout(() => select(id), 100);
+}
+function deleteMulti() {
+  const items = S.multi.map(sEl).filter(Boolean);
+  if (items.some(x => x.closest('[data-se-lock]'))) { toast('Something selected is locked'); return; }
+  act(`Deleted ${items.length} things`, () => items.forEach(x => x.remove()), { devLabel: false });
+  S.multi = []; select(null);
 }
 function deleteSel() {
   const s = sEl(S.sel); if (!s || s === getDoc(S.page).body) return;
@@ -664,11 +690,30 @@ function replaceTag(s, tag, extra) {
   s.replaceWith(n);
   return n;
 }
+/* Images can't hold anything, so they go inside a link instead of becoming one.
+   The link takes over the image's spot on the page; the image fills the link. */
+function wrapInLink(s) {
+  if (s.closest('svg') && s.tagName.toLowerCase() !== 'svg') s = s.closest('svg');
+  let aid;
+  act(`Made ${nameOf(s)} clickable`, () => {
+    const doc = getDoc(S.page), a = doc.createElement('a'), key = keyOf(s, false);
+    a.setAttribute('href', '#'); a.className = 'se-button' + (key ? ' ' + key : '');
+    if (key) s.classList.remove(key);
+    if (s.getAttribute('data-se-name')) a.setAttribute('data-se-name', s.getAttribute('data-se-name'));
+    s.before(a); a.appendChild(s); assignIds(doc); aid = a.getAttribute('data-se-id');
+    if (key) applyOwn(s, { display: 'block', width: '100%', height: '100%', 'object-fit': 'cover' }, { device: 'desktop' });
+    else applyOwn(a, { display: 'inline-block' }, { device: 'desktop' });
+    return true;
+  }, { devLabel: false });
+  S.openSecs.add('widget');
+  setTimeout(() => select(aid), 120);
+}
 function turnInto(kind) {
   const s = sEl(S.sel); if (!s) return;
   if (!canChange(s, 'changed')) return;
   if (kind === 'button') {
-    if (s.tagName === 'A') { S.tab = 'widget'; renderAll(); return; }
+    if (s.tagName === 'A') { S.openSecs.add('widget'); renderAll(); return; }
+    if (s.tagName === 'IMG' || s.closest('svg') || ['VIDEO', 'IFRAME', 'PICTURE'].includes(s.tagName)) { wrapInLink(s); return; }
     act(`Turned ${nameOf(s)} into a button`, () => { replaceTag(s, 'a', n => { n.setAttribute('href', '#'); n.classList.add('se-button'); }); }, { devLabel: false });
   } else if (kind === 'shape') {
     act(`Turned ${nameOf(s)} back into a plain shape`, () => {
@@ -704,7 +749,7 @@ function turnInto(kind) {
       S.sel = d.getAttribute('data-se-id');
     }, { devLabel: false });
   }
-  S.tab = 'widget';
+  S.openSecs.add('widget');
   setTimeout(() => { renderAll(); drawSelection(); }, 120);
 }
 
@@ -733,7 +778,7 @@ function placeCtxBar() {
     ev.stopPropagation();
     const k = b.dataset.cb;
     if (k === 'turn') showFlyout(b, turnItems(s));
-    if (k === 'link') { S.tab = 'widget'; S.openSecs.add('widget'); showPanel('properties'); }
+    if (k === 'link') { S.openSecs.add('widget'); showPanel('properties'); }
     if (k === 'motion') { S.openSecs.add('motion'); showPanel('properties'); renderAll(); setTimeout(() => { const m = $('[data-sec="motion"]'); if (m) m.scrollIntoView({ block: 'start' }); }, 50); }
     if (k === 'lock') toggleLock(s.getAttribute('data-se-id'));
     if (k === 'dup') duplicateSel();
@@ -757,7 +802,7 @@ function toggleLock(id, to) {
   const next = to !== undefined ? to : (cur ? '' : 'all');
   act(next === 'all' ? `Locked ${nameOf(s)}` : next === 'position' ? `Locked the position of ${nameOf(s)}` : `Unlocked ${nameOf(s)}`, () => {
     if (next) s.setAttribute('data-se-lock', next); else s.removeAttribute('data-se-lock');
-  }, { render: false, devLabel: false });
+  }, Q);
   const r = rEl(id); if (r) { if (next) r.setAttribute('data-se-lock', next); else r.removeAttribute('data-se-lock'); }
   drawSelection();
 }
@@ -802,16 +847,18 @@ function makeShared() {
 /* ---------- Right-click menu & flyouts ---------- */
 function onCanvasMenu(e) {
   e.preventDefault();
-  const t = pickAt(e.clientX, e.clientY); if (!t) return;
-  select(t.getAttribute('data-se-id'));
+  const t = pickAt(e.clientX, e.clientY);
   const fr = $('#frameBox').getBoundingClientRect();
+  S.ctxAt = { x: e.clientX, y: e.clientY };
+  if (!t) { select(null); showEmptyCtx(fr.left + e.clientX * S.z, fr.top + e.clientY * S.z); return; }
+  if (!S.multi.includes(t.getAttribute('data-se-id'))) select(t.getAttribute('data-se-id'));
   showCtx(fr.left + e.clientX * S.z, fr.top + e.clientY * S.z);
 }
 function showCtx(x, y) {
   const s = sEl(S.sel); if (!s) return;
   const m = $('#ctxMenu'), lock = s.getAttribute('data-se-lock');
   const turn = turnItems(s);
-  m.innerHTML = `<div class="sub-title">Turn into</div>${turn.map((t, i) => `<button data-ti="${i}">${esc(t[0])}</button>`).join('')}<hr>
+  m.innerHTML = `<button data-cmd="linkImage">Link image…</button><hr><div class="sub-title">Turn into</div>${turn.map((t, i) => `<button data-ti="${i}">${esc(t[0])}</button>`).join('')}<hr>
     ${canEditText(rEl(S.sel)) ? '<button data-cmd="editText">Edit the words<kbd>↵</kbd></button>' : ''}
     <button data-cmd="addMotion">Add motion…</button>
     <button data-cmd="duplicate">Duplicate<kbd>⌘D</kbd></button>
@@ -830,6 +877,13 @@ function showCtx(x, y) {
   $$('[data-ti]', m).forEach(b => b.onclick = ev => { ev.stopPropagation(); hideCtx(); turn[+b.dataset.ti][1](); });
   bindCmds(m, hideCtx);
 }
+function showEmptyCtx(x, y) {
+  const m = $('#ctxMenu');
+  m.innerHTML = `<button data-cmd="linkImage">Link image…</button><button data-cmd="frameHere">Add a photo frame here</button>`;
+  m.hidden = false;
+  m.style.left = Math.min(x, innerWidth - m.offsetWidth - 8) + 'px'; m.style.top = Math.min(y, innerHeight - m.offsetHeight - 8) + 'px';
+  bindCmds(m, hideCtx);
+}
 function hideCtx() { $('#ctxMenu').hidden = true; }
 function showFlyout(anchor, items, dir) {
   const f = $('#flyout');
@@ -846,6 +900,7 @@ function hideFlyout() { $('#flyout').hidden = true; }
 const TOOL_GROUPS = [
   [['select', 'Select', 'V', I.select], ['direct', 'Select group', 'A', I.direct]],
   [['rect', 'Rectangle', 'M', I.rect], ['ellipse', 'Ellipse', 'U', I.ellipse], ['line', 'Line', 'L', I.line]],
+  [['frame', 'Photo frame', 'F', I.frame]],
   [['text', 'Text', 'T', I.text]],
   [['image', 'Image', 'I', I.image], ['embedCode', 'Embed code…', '', I.embed]],
   [['pivot', 'Pivot point', 'O', I.pivot]],
@@ -888,8 +943,9 @@ function onKey(e) {
   const mod = e.metaKey || e.ctrlKey, k = e.key.toLowerCase();
   if (S.editing) { if (k === 'escape') { e.preventDefault(); const r = rEl(S.editing); if (r) r.blur(); } return; }
   if (mod && k === 's') { e.preventDefault(); openDownload(); return; }
+  if ((mod && k === 'f') || k === 'f1') { e.preventDefault(); openHelp(); return; }
   if (typing) { if (k === 'escape') t.blur(); return; }
-  if (k === 'escape') { if (closeModal()) return; hideCtx(); hideFlyout(); closeMenus(); if (S.tool !== 'select') setTool('select'); else select(null); return; }
+  if (k === 'escape') { if (closeModal()) return; if (S.cropping) { endCrop(); return; } if (closeHelp()) return; hideCtx(); hideFlyout(); closeMenus(); if (S.tool !== 'select') setTool('select'); else select(null); return; }
   if (!$('#modal').hidden || S.preview && k !== 'p') return;
   if (k === ' ' && !S.spaceHand) { e.preventDefault(); S.spaceHand = true; setBodyToolClass(); $('#stage').classList.add('hand'); return; }
   if (mod && (k === '=' || k === '+')) { e.preventDefault(); zoomStep(1); return; }
@@ -903,9 +959,9 @@ function onKey(e) {
   if (mod && (k === ']' || k === '[')) { e.preventDefault(); if (S.sel) restack(k === ']' ? (e.shiftKey ? 'front' : 'forward') : (e.shiftKey ? 'back' : 'backward')); return; }
   if (mod) return;
   if (k.startsWith('arrow') && S.sel) { e.preventDefault(); const n = e.shiftKey ? 10 : 1; nudge(k === 'arrowleft' ? -n : k === 'arrowright' ? n : 0, k === 'arrowup' ? -n : k === 'arrowdown' ? n : 0); return; }
-  if (k === 'delete' || k === 'backspace') { if (S.sel) { e.preventDefault(); deleteSel(); } return; }
+  if (k === 'delete' || k === 'backspace') { if (S.multi.length) { e.preventDefault(); deleteMulti(); } else if (S.sel) { e.preventDefault(); deleteSel(); } return; }
   if (k === 'enter' && S.sel) { e.preventDefault(); startTextEdit(S.sel); return; }
-  const tools = { v: 'select', a: 'direct', m: 'rect', u: 'ellipse', l: 'line', t: 'text', i: 'image', o: 'pivot', h: 'hand', z: 'zoom' };
+  const tools = { v: 'select', a: 'direct', m: 'rect', u: 'ellipse', l: 'line', t: 'text', f: 'frame', i: 'image', o: 'pivot', h: 'hand', z: 'zoom' };
   if (tools[k]) { setTool(tools[k]); return; }
   if (k === 'p') togglePreview();
 }
@@ -913,4 +969,192 @@ function onKeyUp(e) { if (e.key === ' ') { S.spaceHand = false; setBodyToolClass
 document.addEventListener('keydown', onKey);
 document.addEventListener('keyup', onKeyUp);
 $('#stage').addEventListener('mousedown', e => { if (e.target === $('#stage') || e.target === $('#frameBox')) { if (S.spaceHand || S.tool === 'hand') startPan(e); else select(null); } });
-$('#stage').addEventListener('wheel', e => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); zoomStep(e.deltaY < 0 ? 1 : -1); } }, { passive: false });
+$('#stage').addEventListener('wheel', e => onWheel(e, false), { passive: false });
+
+/* ---------- Drag a box to select several things ---------- */
+function startMarquee(e) {
+  const d = fdoc(), sx = e.clientX, sy = e.clientY;
+  let box = null, moved = false;
+  const container = containerAt(sx, sy);
+  trackDrag(ev => {
+    const p = frameXY(ev);
+    if (!moved && Math.hypot(p.x - sx, p.y - sy) < 4) return;
+    moved = true;
+    if (!box) { box = d.createElement('div'); box.setAttribute('data-se-ui', 'marquee'); box.style.cssText = 'position:fixed;border:1px solid #CA374D;background:rgba(202,55,77,.12);pointer-events:none;z-index:2147483646'; d.documentElement.appendChild(box); }
+    Object.assign(box.style, { left: Math.min(sx, p.x) + 'px', top: Math.min(sy, p.y) + 'px', width: Math.abs(p.x - sx) + 'px', height: Math.abs(p.y - sy) + 'px' });
+  }, ev => {
+    if (box) box.remove();
+    if (!moved) { select(null); return; }
+    const p = frameXY(ev), L = Math.min(sx, p.x), T = Math.min(sy, p.y), R = Math.max(sx, p.x), B = Math.max(sy, p.y);
+    const hits = [...container.children].filter(c => c.hasAttribute('data-se-id') && !c.hasAttribute('data-se-ui') && !lockedAll(c))
+      .filter(c => { const r = c.getBoundingClientRect(); return r.width && r.left >= L && r.top >= T && r.right <= R && r.bottom <= B; });
+    if (!hits.length) { select(null); return; }
+    if (hits.length === 1) { select(hits[0].getAttribute('data-se-id')); return; }
+    S.multi = hits.map(h => h.getAttribute('data-se-id')); S.sel = S.multi[S.multi.length - 1];
+    drawSelection(); renderAll();
+  });
+}
+/* Moving several things together: they all shift by the same amount */
+function startGroupMove(e) {
+  const start = { x: e.clientX, y: e.clientY };
+  const items = S.multi.map(id => ({ id, r: rEl(id), s: sEl(id) })).filter(x => x.r && x.s);
+  if (items.some(x => x.s.closest('[data-se-lock]'))) { toast('Something in the selection is locked. Unlock it to move them together.'); return; }
+  let moved = false, sh = null; const plan = [];
+  trackDrag(ev => {
+    const p = frameXY(ev), dx = p.x - start.x, dy = p.y - start.y;
+    if (!moved) {
+      if (Math.hypot(dx, dy) < 3 / S.z) return;
+      moved = true; S.dragging = true; sh = shield('move');
+      const seen = new Set();
+      for (const it of items) if (!isFree(it.r)) for (const st of planFreeze(it.r)) if (!seen.has(st[0])) { seen.add(st[0]); plan.push(st); }
+      for (const [id, props] of plan) { const el = rEl(id); if (el) for (const [k, v] of Object.entries(props)) el.style.setProperty(k, v); }
+      for (const it of items) { const cs = fwin().getComputedStyle(it.r); it.L = parseFloat(cs.left) || 0; it.T = parseFloat(cs.top) || 0; }
+    }
+    for (const it of items) { it.nl = Math.round(it.L + dx); it.nt = Math.round(it.T + dy); it.r.style.left = it.nl + 'px'; it.r.style.top = it.nt + 'px'; }
+    drawSelection(); $('#ctxBar').hidden = true;
+  }, () => {
+    S.dragging = false; if (sh) sh.remove();
+    if (!moved) return;
+    for (const it of items) S.pendingClear.push([it.r, ['left', 'top']]);
+    act(`Moved ${items.length} things`, () => {
+      let link = plan.length ? applyPlan(plan) : false;
+      for (const it of items) if (applyOwn(it.s, { left: it.nl + 'px', top: it.nt + 'px' })) link = true;
+      return link;
+    }, { render: false, cssPath: SE_CSS });
+  });
+}
+
+/* ---------- Align and distribute ---------- */
+/* With several things selected they line up with each other; with one, it lines up inside what it's in */
+function alignSel(how) {
+  const ids = S.multi.length ? S.multi : S.sel ? [S.sel] : [];
+  const items = ids.map(rEl).filter(Boolean).map(movableOf).map(r => ({ r, s: sEl(r.getAttribute('data-se-id')) })).filter(x => x.s);
+  if (!items.length) return;
+  if (items.some(x => x.s.closest('[data-se-lock]'))) { toast('Something selected is locked'); return; }
+  if (how.startsWith('dist') && items.length < 3) { toast('Select three or more things to space them evenly'); return; }
+  const plan = [], seen = new Set();
+  for (const it of items) if (!isFree(it.r)) for (const st of planFreeze(it.r)) if (!seen.has(st[0])) { seen.add(st[0]); plan.push(st); }
+  const box = items.length > 1 ? multiBounds() : items[0].r.parentElement.getBoundingClientRect();
+  const rects = items.map(it => ({ it, b: it.r.getBoundingClientRect() }));
+  const moves = [];
+  if (how.startsWith('dist')) {
+    const horiz = how === 'distH';
+    rects.sort((a, b) => horiz ? a.b.left - b.b.left : a.b.top - b.b.top);
+    const total = rects.reduce((n, x) => n + (horiz ? x.b.width : x.b.height), 0);
+    const span = horiz ? rects[rects.length - 1].b.right - rects[0].b.left : rects[rects.length - 1].b.bottom - rects[0].b.top;
+    const gap = (span - total) / (rects.length - 1);
+    let pos = horiz ? rects[0].b.left : rects[0].b.top;
+    for (const x of rects) { moves.push([x, horiz ? pos - x.b.left : 0, horiz ? 0 : pos - x.b.top]); pos += (horiz ? x.b.width : x.b.height) + gap; }
+  } else {
+    for (const x of rects) {
+      const dx = how === 'left' ? box.left - x.b.left : how === 'right' ? box.right - x.b.right : how === 'center' ? (box.left + box.width / 2) - (x.b.left + x.b.width / 2) : 0;
+      const dy = how === 'top' ? box.top - x.b.top : how === 'bottom' ? box.bottom - x.b.bottom : how === 'middle' ? (box.top + box.height / 2) - (x.b.top + x.b.height / 2) : 0;
+      moves.push([x, dx, dy]);
+    }
+  }
+  const words = { left: 'Lined up the left edges of', right: 'Lined up the right edges of', center: 'Centered', top: 'Lined up the tops of', bottom: 'Lined up the bottoms of', middle: 'Centered', distH: 'Spaced out', distV: 'Spaced out' };
+  const what = items.length > 1 ? `${items.length} things` : nameOf(items[0].s);
+  const starts = new Map(moves.map(([x]) => { const pl = plan.find(st => st[0] === x.it.r.getAttribute('data-se-id')); const cs = fwin().getComputedStyle(x.it.r); return [x, pl ? { L: parseFloat(pl[1].left) || 0, T: parseFloat(pl[1].top) || 0 } : { L: parseFloat(cs.left) || 0, T: parseFloat(cs.top) || 0 }]; }));
+  act(`${words[how]} ${what}`, () => {
+    if (plan.length) applyPlan(plan);
+    for (const [x, dx, dy] of moves) {
+      const st = starts.get(x), props = {};
+      if (Math.abs(dx) > 0.5) props.left = Math.round(st.L + dx) + 'px';
+      if (Math.abs(dy) > 0.5) props.top = Math.round(st.T + dy) + 'px';
+      if (Object.keys(props).length) applyOwn(x.it.s, props);
+    }
+    return true;
+  });
+}
+
+/* ---------- Photo frames: crop mode ---------- */
+/* Double-click a filled frame: drag to slide the photo, scroll to zoom it, Esc or double-click to finish */
+function frameImg(id) { const r = rEl(id); return r && r.querySelector(':scope > img'); }
+function startCrop(id) {
+  const img = frameImg(id); if (!img) { toast('This frame is empty. Drop a photo on it or right-click → Link image…'); return; }
+  select(id); S.cropping = id;
+  const cs = fwin().getComputedStyle(img);
+  const [px, py] = cs.objectPosition.split(' ').map(v => parseFloat(v));
+  const m = (cs.transform.match(/matrix\(([^,]+)/) || [])[1];
+  S.crop = { x: isNaN(px) ? 50 : px, y: isNaN(py) ? 50 : py, z: m ? parseFloat(m) : 1 };
+  img.style.cursor = 'move'; img.style.outline = '2px dashed #CA374D'; img.style.outlineOffset = '-2px';
+  $('#statusTip').textContent = 'Cropping: drag to slide the photo, scroll to zoom. Press Esc or double-click when done.';
+  drawSelection();
+}
+function applyCropLive() { const img = frameImg(S.cropping); if (!img) return; img.style.objectPosition = `${S.crop.x}% ${S.crop.y}%`; img.style.transformOrigin = `${S.crop.x}% ${S.crop.y}%`; img.style.transform = `scale(${S.crop.z})`; }
+function startCropPan(e) {
+  const img = frameImg(S.cropping); if (!img) return;
+  const b = img.getBoundingClientRect(), start = { x: e.clientX, y: e.clientY, cx: S.crop.x, cy: S.crop.y };
+  trackDrag(ev => { const p = frameXY(ev); S.crop.x = Math.min(100, Math.max(0, start.cx - (p.x - start.x) / b.width * 100)); S.crop.y = Math.min(100, Math.max(0, start.cy - (p.y - start.y) / b.height * 100)); applyCropLive(); }, () => {});
+}
+function endCrop() {
+  const id = S.cropping; if (!id) return;
+  S.cropping = null;
+  const img = frameImg(id); $('#statusTip').textContent = '';
+  if (!img) return;
+  img.style.cursor = ''; img.style.outline = ''; img.style.outlineOffset = '';
+  const sImg = sEl(img.getAttribute('data-se-id'));
+  const props = { 'object-position': `${Math.round(S.crop.x)}% ${Math.round(S.crop.y)}%`, 'transform-origin': `${Math.round(S.crop.x)}% ${Math.round(S.crop.y)}%`, transform: S.crop.z > 1.001 ? `scale(${S.crop.z.toFixed(2)})` : '' };
+  S.pendingClear.push([img, ['object-position', 'transform-origin', 'transform']]);
+  act(`Cropped the photo in ${nameOf(sEl(id))}`, () => applyOwn(sImg, props), { render: false, cssPath: SE_CSS, devLabel: false });
+}
+/* Puts a photo (already in the site's files) into a frame, image, box or empty spot */
+function placePhoto(path, target, at) {
+  const s = target ? sEl(target.getAttribute('data-se-id')) : null;
+  const file = path.split('/').pop();
+  if (s && s.tagName === 'IMG') { act(`Swapped the photo in ${nameOf(s)}`, () => s.setAttribute('src', relPath(S.page, path)), { devLabel: false }); return; }
+  const frame = s && s.closest('.se-frame');
+  if (frame) {
+    act(`Put ${file} in ${nameOf(frame)}`, () => {
+      let img = frame.querySelector(':scope > img');
+      if (!img) { img = getDoc(S.page).createElement('img'); img.setAttribute('alt', ''); frame.appendChild(img); assignIds(getDoc(S.page)); }
+      img.setAttribute('src', relPath(S.page, path));
+    }, { devLabel: false });
+    return;
+  }
+  if (s && s !== getDoc(S.page).body && ['DIV', 'FIGURE', 'ASIDE'].includes(s.tagName) && !s.children.length && !(s.textContent || '').trim()) {
+    act(`Filled ${nameOf(s)} with ${file}`, () => {
+      s.classList.add('se-frame'); const img = getDoc(S.page).createElement('img'); img.setAttribute('alt', ''); img.setAttribute('src', relPath(S.page, path)); s.appendChild(img); assignIds(getDoc(S.page));
+      applyOwn(s, { overflow: 'hidden' }, { device: 'desktop' }); return true;
+    }, { devLabel: false });
+    return;
+  }
+  const pt = at || { x: fwin().innerWidth / 2 - 120, y: 160 };
+  insertAt(pt.x, pt.y, 'frame', path);
+}
+/* Right-click → Link image…: pick a photo from the computer and it goes right where you clicked */
+function linkImageFromComputer(target, at) {
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*';
+  inp.onchange = async () => { const f = inp.files[0]; if (!f) return; const path = await importUpload(f); if (path) placePhoto(path, target, at); };
+  inp.click();
+}
+/* Dropping photos from the computer or the Media panel onto the page */
+function onFrameDragOver(e) { const types = [...e.dataTransfer.types]; if (types.includes('Files') || types.includes('text/se-file')) { e.preventDefault(); drawBox('hover', pickAt(e.clientX, e.clientY)); } }
+async function onFrameDrop(e) {
+  e.preventDefault(); drawBox('hover', null);
+  const t = pickAt(e.clientX, e.clientY), at = { x: e.clientX, y: e.clientY };
+  const internal = e.dataTransfer.getData('text/se-file');
+  if (internal && S.files.has(internal)) { placePhoto(internal, t, at); return; }
+  const files = [...e.dataTransfer.files].filter(f => /^image\//.test(f.type));
+  if (!files.length) { toast('Only photos can be dropped onto the page'); return; }
+  for (const f of files) { const path = await importUpload(f); if (path) placePhoto(path, files.length === 1 ? t : null, at); }
+}
+
+/* ---------- Zoom toward the cursor; scroll scrolls ---------- */
+function zoomAt(factor, clientX, clientY) {
+  const fb = $('#frameBox').getBoundingClientRect(), st = $('#stage'), w = fwin();
+  const px = (clientX - fb.left) / S.z, py = (clientY - fb.top) / S.z + (w ? w.scrollY : 0);
+  S.zoom = Math.min(4, Math.max(0.1, Math.round(S.z * factor * 1000) / 1000)); layoutFrame();
+  const fb2 = $('#frameBox').getBoundingClientRect();
+  st.scrollLeft += (fb2.left + px * S.z) - clientX;
+  if (w) w.scrollTo(w.scrollX, Math.max(0, py - (clientY - fb2.top) / S.z));
+  drawSelection();
+}
+function onWheel(e, fromFrame) {
+  const fb = $('#frameBox').getBoundingClientRect();
+  const cx = fromFrame ? fb.left + e.clientX * S.z : e.clientX, cy = fromFrame ? fb.top + e.clientY * S.z : e.clientY;
+  if (S.cropping && fromFrame) { e.preventDefault(); S.crop.z = Math.min(3, Math.max(1, S.crop.z * Math.exp(-e.deltaY * 0.002))); applyCropLive(); return; }
+  if (e.ctrlKey || e.metaKey) { e.preventDefault(); zoomAt(Math.exp(-e.deltaY * (e.deltaMode ? 0.05 : 0.0025)), cx, cy); return; }
+  if (e.shiftKey) { e.preventDefault(); $('#stage').scrollLeft += e.deltaY || e.deltaX; return; }
+  if (!fromFrame) { e.preventDefault(); try { fwin().scrollBy(0, e.deltaY); } catch (er) { /* not loaded */ } }
+}

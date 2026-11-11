@@ -1,4 +1,4 @@
-/* Site Editor v2 — panels
+/* Orbyt Designs v2 — panels
    The panel dock (tabbed groups you can drag, collapse, close and save),
    the menus, the option bar, and every panel: Properties, Character,
    Layers, Pages, History, Team Kit and Data. Plus the timeline. */
@@ -8,18 +8,28 @@
 const PANELS = {
   properties: { title: 'Properties', icon: I.props, render: renderProperties },
   character: { title: 'Character', icon: I.char, render: renderCharacter },
+  effects: { title: 'Effects', icon: I.effects, render: (b) => renderEffects(b) },
   layers: { title: 'Layers', icon: I.layers, render: renderLayers },
   pages: { title: 'Pages', icon: I.pages, render: renderPagesPanel },
   history: { title: 'History', icon: I.history, render: renderHistory },
   kit: { title: 'Team Kit', icon: I.kit, render: renderTeamKit },
-  data: { title: 'Data', icon: I.data, render: renderData }
+  data: { title: 'Data', icon: I.data, render: renderData },
+  media: { title: 'Media', icon: I.media, render: (b) => renderMediaPanel(b) }
 };
 const ESSENTIALS = { groups: [
-  { tabs: ['properties', 'character'], active: 'properties', collapsed: false, w: 3 },
+  { tabs: ['properties', 'character', 'effects'], active: 'properties', collapsed: false, w: 3 },
   { tabs: ['layers', 'pages'], active: 'layers', collapsed: false, w: 2 },
-  { tabs: ['history', 'kit', 'data'], active: 'kit', collapsed: true, w: 2 }
+  { tabs: ['media', 'kit', 'history', 'data'], active: 'media', collapsed: true, w: 2 }
 ], closed: [], compact: false };
-S.ws = (() => { try { const w = JSON.parse(localStorage.getItem('se-ws')); if (w && w.groups) return w; } catch (e) { /* none */ } return JSON.parse(JSON.stringify(ESSENTIALS)); })();
+S.ws = (() => {
+  let w = null; try { w = JSON.parse(localStorage.getItem('se-ws')); } catch (e) { /* none */ }
+  if (!w || !w.groups) return JSON.parse(JSON.stringify(ESSENTIALS));
+  /* Panels added in newer versions join the last group of a saved layout */
+  const known = new Set([...w.groups.flatMap(g => g.tabs), ...(w.closed || [])]);
+  for (const p of Object.keys(PANELS)) if (!known.has(p)) w.groups[w.groups.length - 1].tabs.push(p);
+  for (const g of w.groups) g.tabs = g.tabs.filter(t => PANELS[t]);
+  w.groups = w.groups.filter(g => g.tabs.length); return w;
+})();
 function saveWs() { try { localStorage.setItem('se-ws', JSON.stringify(S.ws)); } catch (e) { /* private mode */ } }
 function renderDock() {
   const dock = $('#dock');
@@ -90,14 +100,15 @@ function menuDefs() {
   const s = sEl(S.sel);
   const panelItems = Object.keys(PANELS).map(p => [`${!S.ws.closed.includes(p) ? '✓ ' : '\u2003'}${PANELS[p].title}`, () => { if (S.ws.closed.includes(p)) showPanel(p); else { for (const g of S.ws.groups) { g.tabs = g.tabs.filter(t => t !== p); if (g.active === p) g.active = g.tabs[0]; } S.ws.groups = S.ws.groups.filter(g => g.tabs.length); S.ws.closed.push(p); saveWs(); renderDock(); renderPanels(); } }]);
   return {
-    File: [['Download…', openDownload, '⌘S'], ['New page…', newPage], '-', ['Open another site…', openAnother]],
+    File: [['Download…', openDownload, '⌘S'], ['New page…', newPage], ['Check the site for problems…', () => runChecks()], '-', ['Open another site…', openAnother], ['Remove this site from this browser…', forgetSite]],
     Edit: [['Undo', undo, '⌘Z', !S.undo.length], ['Redo', redo, '⇧⌘Z', !S.redo.length], '-', ['Duplicate', duplicateSel, '⌘D', !s], ['Delete', deleteSel, '⌫', !s], '-',
       [s && s.getAttribute('data-se-lock') ? 'Unlock' : 'Lock', () => toggleLock(S.sel), '⌘L', !s], [s && s.hasAttribute('data-se-shared') ? 'Stop sharing…' : 'Make shared…', makeShared, '', !s]],
-    Insert: [['Rectangle', () => insertCenter('rect'), 'M'], ['Ellipse', () => insertCenter('ellipse'), 'U'], ['Line', () => insertCenter('line'), 'L'], ['Text', () => insertCenter('text'), 'T'],
+    Insert: [['Photo frame', () => insertCenter('frame'), 'F'], ['Photo from your computer…', () => linkImageFromComputer(rEl(S.sel))], '-', ['Rectangle', () => insertCenter('rect'), 'M'], ['Ellipse', () => insertCenter('ellipse'), 'U'], ['Line', () => insertCenter('line'), 'L'], ['Text', () => insertCenter('text'), 'T'],
       ['Image…', () => pickMedia('image', p => insertCenter('image', p)), 'I'], '-', ['Countdown', () => insertCenter('countdown')], ['Expanding row', () => insertCenter('expand')],
       ['Section tabs', () => insertCenter('tabs')], ['Embed code…', embedModal], '-', ['New page…', newPage]],
     Layer: [['Bring to front', () => restack('front'), '⇧⌘]', !s], ['Bring forward', () => restack('forward'), '⌘]', !s], ['Send backward', () => restack('backward'), '⌘[', !s], ['Send to back', () => restack('back'), '⇧⌘[', !s], '-',
-      ['Group it', groupSel, '', !s], ['Select what it’s inside', () => runCmd('selectParent'), '', !s], '-', ['Free-place everything on this page', freeWholePage]],
+      ['Align left edges', () => alignSel('left'), '', !s], ['Align centers', () => alignSel('center'), '', !s], ['Align tops', () => alignSel('top'), '', !s], ['Space evenly across', () => alignSel('distH'), '', S.multi.length < 3], '-',
+      ['Group it', () => S.multi.length ? groupMulti() : groupSel(), '', !s], ['Select what it’s inside', () => runCmd('selectParent'), '', !s], '-', ['Free-place everything on this page', freeWholePage]],
     View: [['Desktop', () => setDevice('desktop')], ['Tablet', () => setDevice('tablet')], ['Phone', () => setDevice('phone')], '-',
       ['Zoom in', () => zoomStep(1), '⌘+'], ['Zoom out', () => zoomStep(-1), '⌘−'], ['Fit to window', () => setZoom('fit'), '⌘0'], ['Actual size', () => setZoom(1), '⌘1'], '-',
       ['Preview the page', togglePreview, 'P'], ['Switch light / dark', () => runCmd('toggleTheme')]],
@@ -105,7 +116,8 @@ function menuDefs() {
       [`${S.ws.compact ? '✓ ' : '\u2003'}Compact panels (icons only)`, () => { S.ws.compact = !S.ws.compact; saveWs(); renderDock(); renderPanels(); }],
       ['Save this panel layout', () => { try { localStorage.setItem('se-ws-saved', JSON.stringify(S.ws)); toast('Panel layout saved'); } catch (e) { /* ignore */ } }],
       ['Use my saved layout', () => { try { const w = JSON.parse(localStorage.getItem('se-ws-saved')); if (w) { S.ws = w; saveWs(); renderDock(); renderPanels(); } else toast('Save a layout first'); } catch (e) { /* ignore */ } }],
-      ['Reset to Essentials', () => { S.ws = JSON.parse(JSON.stringify(ESSENTIALS)); saveWs(); renderDock(); renderPanels(); }]]
+      ['Reset to Essentials', () => { S.ws = JSON.parse(JSON.stringify(ESSENTIALS)); saveWs(); renderDock(); renderPanels(); }]],
+    Help: [['Search help…', openHelp, 'Ctrl/⌘ F'], ['All guides…', openAllGuides], ['Take the tour', () => runGuide(HELP.find(h => /tour/.test(h.t)))], ['Keyboard shortcuts…', openShortcuts]]
   };
 }
 function renderMenus() {
@@ -132,6 +144,8 @@ const CMD = {
   front: () => restack('front'), forward: () => restack('forward'), backward: () => restack('backward'), back: () => restack('back'),
   lockAll: () => toggleLock(S.sel, 'all'), lockPos: () => toggleLock(S.sel, 'position'), unlock: () => toggleLock(S.sel, ''),
   vanish: () => toggleVanish(S.sel), hideSite: () => toggleHide(S.sel), share: makeShared,
+  linkImage: () => { const t = S.sel ? rEl(S.sel) : null; const at = S.ctxAt; linkImageFromComputer(t, at); },
+  frameHere: () => { const at = S.ctxAt || { x: 200, y: 200 }; const fb = $('#frameBox').getBoundingClientRect(); insertAt(at.x, at.y, 'frame'); },
   selectParent: () => { const s = sEl(S.sel); if (s && s.parentElement && s.parentElement.tagName !== 'BODY') select(s.parentElement.getAttribute('data-se-id')); }
 };
 function runCmd(c) { if (CMD[c]) CMD[c](); }
@@ -144,9 +158,10 @@ function setDevice(dev) {
 }
 function togglePreview() {
   if (S.editing) finishTextEdit();
+  if (!S.preview) stopPlayback();
   S.preview = !S.preview;
   $('#previewBtn').textContent = S.preview ? 'Back to editing' : 'Preview';
-  stopPlayback(); renderOptbar(); renderTimeline(); renderFrame(false); placeCtxBar();
+  renderOptbar(); renderTimeline(); renderFrame(false); placeCtxBar();
 }
 function setTheme(t) { document.documentElement.dataset.theme = t; try { localStorage.setItem('se-theme', t); } catch (e) { /* ignore */ } setTimeout(drawRulers, 30); }
 
@@ -157,6 +172,7 @@ function renderOptbar() {
   const hints = { rect: 'Click where the rectangle should go.', ellipse: 'Click where the ellipse should go.', line: 'Click where the line should start.', text: 'Click where the new text should go.', image: 'Click where the image should go, then pick it.', pivot: 'Click on the selected part right where it should bend or turn.', hand: 'Drag to move around the page. Hold Space to do this with any tool.', zoom: 'Click to zoom in. Alt-click to zoom out.', direct: 'Clicks pick the whole group instead of the piece inside it.' };
   const devNote = S.device !== 'desktop' ? `<span class="chip" style="background:var(--sel);color:var(--sel-text)">${S.device === 'phone' ? 'Editing for phones' : 'Editing for tablets and phones'}</span>` : '';
   const s = sEl(S.sel);
+  if (S.multi.length && !hints[S.tool]) { bar.innerHTML = `${devNote}<span class="chip">${S.multi.length} selected</span><span class="vsep"></span>${alignButtons()}<span class="spacer"></span><span>Shift-click to add or remove</span>`; bindAlign(bar); return; }
   if (!s || hints[S.tool]) { bar.innerHTML = `${devNote}<span>${hints[S.tool] || 'Click something to select it. Drag to move it, double-click text to type, right-click for more.'}</span>`; return; }
   const r = rEl(S.sel), cs = r ? fwin().getComputedStyle(r) : null, free = r && isFree(movableOf(r));
   const num = (k, label, v) => `<label title="${label}">${k}<input class="inp num" data-ob="${k}" style="width:64px" value="${v}"></label>`;
@@ -168,12 +184,14 @@ function renderOptbar() {
     ${txt ? `<label>Size<input class="inp num" id="obSize" style="width:56px" value="${cs ? Math.round(parseFloat(cs.fontSize)) : ''}"></label>
     <button class="icon-btn" id="obBold" title="Bold" aria-pressed="${bold}" style="${bold ? 'background:var(--accent);color:var(--on-accent);border-color:var(--accent)' : ''};font-weight:700">B</button>` : ''}
     ${!free && r && S.device === 'desktop' ? '<span>Drag it to free-place it.</span>' : ''}
+    <span class="vsep"></span>${alignButtons()}
     <span class="spacer"></span>${s.getAttribute('data-se-lock') ? '<span>Locked</span>' : ''}`;
   $$('[data-ob]', bar).forEach(inp => inp.onchange = () => {
     const m = movableOf(r), ms = sEl(m.getAttribute('data-se-id')), v = parseFloat(inp.value); if (isNaN(v)) return;
     const prop = { X: 'left', Y: 'top', W: 'width', H: 'height' }[inp.dataset.ob];
     act(`Changed the ${prop === 'left' ? 'position' : prop === 'top' ? 'position' : prop} of ${nameOf(ms)}`, () => applyOwn(ms, { [prop]: Math.round(v) + 'px' }), { render: false, cssPath: SE_CSS });
   });
+  bindAlign(bar);
   const sz = $('#obSize'); if (sz) sz.onchange = () => setStyle('font-size', sz.value, 'text size');
   const b = $('#obBold'); if (b) b.onclick = () => setStyle('font-weight', bold ? '400' : '700', 'boldness');
 }
@@ -200,6 +218,7 @@ function bindSwatches(root, fn) {
 
 /* ============ Properties panel ============ */
 function renderProperties(box) {
+  if (S.multi.length) { renderMultiProps(box); return; }
   const s = sEl(S.sel);
   if (!s) {
     const doc = getDoc(S.page), desc = doc.querySelector('meta[name="description"]');
@@ -209,12 +228,12 @@ function renderProperties(box) {
       ${sec('free', 'Free placement', `<p class="hint">Things you drag become free-placed on their own. To free-place everything on this page at once:</p><button class="btn" id="pgFree">Free-place everything on this page</button>`)}`;
     if (!S.openSecs.has('page')) S.openSecs.add('page');
     bindSecs(box);
-    $('#pgTitle', box).onchange = e => act('Changed the page name', () => { doc.title = e.target.value; }, { render: false, devLabel: false });
+    $('#pgTitle', box).onchange = e => act('Changed the page name', () => { doc.title = e.target.value; }, Q);
     $('#pgDesc', box).onchange = e => act('Changed the search engine summary', () => {
       let m = doc.querySelector('meta[name="description"]');
       if (!m) { m = doc.createElement('meta'); m.name = 'description'; doc.head.appendChild(m); }
       m.setAttribute('content', e.target.value);
-    }, { render: false, devLabel: false });
+    }, Q);
     $('#pgFree', box).onclick = freeWholePage;
     return;
   }
@@ -224,7 +243,8 @@ function renderProperties(box) {
   box.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:10px;padding:12px">
       <label class="field">Name<input class="inp" id="pName" value="${esc(nameOf(s))}"></label>
-      ${cls ? `<div class="field">Apply changes to${seg('scope', [['one', 'Just this one'], ['all', 'Every one like this']], S.scope)}</div>` : ''}
+      ${cls ? `<div class="field"><span>Apply changes to <span class="q" title="“Just this one” changes only this. “Every one like this” changes every ${esc(pretty(cls).toLowerCase())} on every page.">?</span></span>${seg('scope', [['one', 'Just this one'], ['all', 'Every one like this']], S.scope)}</div>` : ''}
+      ${variantsOf(s).length ? `<label class="field">Style<select class="inp" id="pVariant"><option value="">Standard</option>${variantsOf(s).map(v => `<option value="${esc(v)}" ${s.classList.contains(v) ? 'selected' : ''}>${esc(pretty(v))}</option>`).join('')}</select></label>` : ''}
     </div>
     ${widget ? sec('widget', widget.title, widget.html) : ''}
     ${sec('pos', 'Position & size', posSection(s, r))}
@@ -234,11 +254,27 @@ function renderProperties(box) {
   bindSecs(box);
   $('#pName', box).onchange = e => act('Renamed a layer', () => { if (e.target.value.trim()) s.setAttribute('data-se-name', e.target.value.trim()); else s.removeAttribute('data-se-name'); }, { render: false, devLabel: false, pageDirty: true });
   bindSeg(box, 'scope', v => { S.scope = v; renderPanels(); });
+  const vs = $('#pVariant', box); if (vs) vs.onchange = () => setVariant(s, vs.value);
   if (widget) widget.bind($('[data-sec="widget"] .sec-b', box));
   bindPos($('[data-sec="pos"] .sec-b', box), s, r);
   bindLook($('[data-sec="look"] .sec-b', box), s, r);
   bindMotion($('[data-sec="motion"] .sec-b', box), s);
   bindLayer($('[data-sec="layer"] .sec-b', box), s);
+}
+
+/* Variants: style options the site's CSS already has, like .team-card.pink and .team-card.blue */
+const variantsOf = memo2((s) => {
+  const cls = mainClass(s); if (!cls) return [];
+  const out = new Set();
+  for (const [p, f] of S.files) if (isCss(p) && p !== SE_CSS && f.kind === 'text') for (const m of f.text.matchAll(new RegExp('\\.' + escRe(cls) + '\\.([A-Za-z][\\w-]*)', 'g'))) if (!/^se-/.test(m[1])) out.add(m[1]);
+  return [...out];
+});
+function memo2(fn) { const c = new Map(); let v = -1; return s => { if (v !== S.fv) { c.clear(); v = S.fv; } const k = mainClass(s); if (!c.has(k)) c.set(k, fn(s)); return c.get(k); }; }
+function setVariant(s, v) {
+  const all = variantsOf(s);
+  act(v ? `Switched ${nameOf(s)} to ${pretty(v)}` : `Switched ${nameOf(s)} to the standard style`, () => { all.forEach(x => s.classList.remove(x)); if (v) s.classList.add(v); }, Q);
+  const r = rEl(S.sel); if (r) { all.forEach(x => r.classList.remove(x)); if (v) r.classList.add(v); }
+  setTimeout(drawSelection, 60);
 }
 
 /* Position & size, pinning, show per screen size */
@@ -258,6 +294,7 @@ function posSection(s, r) {
       : `<p class="hint">It still sits in the page’s normal flow. Drag it, or:</p><button class="btn" id="posFree" ${S.device !== 'desktop' ? 'disabled' : ''}>Free-place it</button>`}
     ${s.hasAttribute('data-se-popup') ? '' : `<div class="field">Stay on screen when scrolling${seg('pin', [['none', 'No'], ['top', 'Top'], ['bottom', 'Bottom'], ['here', 'Where it is']], pinMode)}</div>`}
     ${pinned && !s.hasAttribute('data-se-popup') ? tog('stretch', mcs.left === '0px' && (mcs.right === '0px' || Math.abs(mr.width - fwin().innerWidth) < 2), 'Stretch across the screen') : ''}
+    <div class="field">Line up inside what it’s in${alignButtons()}</div>
     ${tog('showDev', !hiddenHere, `Show on ${devName}`)}
     ${S.device !== 'desktop' && m.children.length ? `<button class="btn" id="posStack">Stack what’s inside for ${devName}</button><p class="hint" style="margin-top:-6px">Lines up everything inside it top to bottom, full width, just for this screen size.</p>` : ''}`;
 }
@@ -284,6 +321,7 @@ function bindPos(box, s, r) {
     act(on ? `Showed ${nameOf(ms)}` : `Hid ${nameOf(ms)}`, () => applyOwn(ms, { display: on ? (inherited ? 'block' : '') : 'none' }), { render: false, cssPath: SE_CSS });
   });
   const st = $('#posStack', box); if (st) st.onclick = () => stackForDevice(m);
+  bindAlign(box);
 }
 function stackForDevice(m) {
   const kids = [...m.children].filter(c => c.hasAttribute('data-se-id') && isFree(c) && fwin().getComputedStyle(c).position !== 'fixed');
@@ -334,7 +372,16 @@ function lookSection(s, r, g) {
       <label class="field">Outline<input class="inp num" id="lOutline" value="${px(g('border-top-width'))}"></label>
       <label class="field">Space inside<input class="inp num" data-lk="padding" data-label="space inside" value="${esc(g('padding').replace(/px/g, ''))}"></label>
     </div>
-    ${parseFloat(g('border-top-width')) ? `<div class="field">Outline color${swatchRow('border-color', 'outline color', g('border-top-color'))}</div>` : ''}`;
+    ${parseFloat(g('border-top-width')) ? `<div class="field">Outline color${swatchRow('border-color', 'outline color', g('border-top-color'))}</div>` : ''}
+    ${(() => { const f = parseFilter(g('filter')); return `<div class="grid2">
+      <label class="field">Brightness<input class="inp num" data-flt="brightness" value="${Math.round(f.brightness * 100)}%"></label>
+      <label class="field">Contrast<input class="inp num" data-flt="contrast" value="${Math.round(f.contrast * 100)}%"></label>
+      <label class="field">Blur<input class="inp num" data-flt="blur" value="${f.blur}px"></label></div>`; })()}`;
+}
+function parseFilter(v) {
+  const f = { brightness: 1, contrast: 1, blur: 0 };
+  for (const m of String(v || '').matchAll(/(brightness|contrast|blur)\(([\d.]+)(px)?\)/g)) f[m[1]] = parseFloat(m[2]);
+  return f;
 }
 function bindLook(box, s, r) {
   if (!box) return;
@@ -351,7 +398,7 @@ function bindLook(box, s, r) {
   bindSeg(box, 'fill', v => {
     if (v === 'none') setStyle({ 'background-color': 'transparent', 'background-image': 'none' }, null, 'fill');
     else if (v === 'solid') { const c = (teamColors()[0] || {}).prop; setStyle({ 'background-color': c ? `var(${c})` : '#808080', 'background-image': 'none' }, null, 'fill'); }
-    else { const cs = teamColors(); saveGrad({ angle: 90, stops: [{ c: cs[0] ? `var(${cs[0].prop})` : '#F05A28', p: 0 }, { c: cs[1] ? `var(${cs[1].prop})` : '#1A1A1A', p: 100 }] }, `Gave ${nameOf(s)} a gradient`); }
+    else { const cs = teamColors(); saveGrad({ angle: 90, stops: [{ c: cs[0] ? `var(${cs[0].prop})` : '#CA374D', p: 0 }, { c: cs[1] ? `var(${cs[1].prop})` : '#1A1A1A', p: 100 }] }, `Gave ${nameOf(s)} a gradient`); }
   });
   const gd = gradOf(s, g);
   if (gd) {
@@ -368,6 +415,13 @@ function bindLook(box, s, r) {
   }
   $$('[data-lk]', box).forEach(i => i.onchange = () => setStyle(i.dataset.lk, i.value, i.dataset.label));
   $('#lOpacity', box).onchange = e => { const v = Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)); setStyle('opacity', String((100 - v) / 100), 'see-through amount'); };
+  $$('[data-flt]', box).forEach(inp => inp.onchange = () => {
+    const f = parseFilter(r ? fwin().getComputedStyle(r).filter : '');
+    const n = parseFloat(inp.value); if (isNaN(n)) return;
+    f[inp.dataset.flt] = inp.dataset.flt === 'blur' ? Math.max(0, n) : Math.max(0, n) / 100;
+    const out = `brightness(${f.brightness}) contrast(${f.contrast})${f.blur ? ` blur(${f.blur}px)` : ''}`;
+    setStyle('filter', out === 'brightness(1) contrast(1)' ? 'none' : out, inp.dataset.flt === 'blur' ? 'blur' : inp.dataset.flt);
+  });
   $('#lOutline', box).onchange = e => { const v = parseFloat(e.target.value) || 0; setStyle(v ? { 'border-width': v + 'px', 'border-style': 'solid' } : { 'border-width': '0px', 'border-style': 'none' }, null, 'outline'); };
 }
 
@@ -400,9 +454,19 @@ function widgetSection(s) {
   if (s.tagName === 'DETAILS') return { title: 'Expanding row', html: expandHtml(s), bind: b => bindExpand(b, s) };
   if (s.classList.contains('se-embed')) return { title: 'Embedded content', html: `<label class="field">Embed code<textarea class="inp mono" id="emCode" rows="6">${esc(s.innerHTML.trim())}</textarea></label><button class="btn" id="emSave">Update embed</button><p class="hint">It shows as a placeholder while editing. Use Preview to see it working.</p>`, bind: b => { $('#emSave', b).onclick = () => act('Updated embedded content', () => { s.innerHTML = $('#emCode', b).value; assignIds(getDoc(S.page)); }, { devLabel: false }); } };
   if (s.hasAttribute('data-se-tabs')) return { title: 'Section tabs', html: tabsHtml(s), bind: b => bindTabs(b, s) };
-  if (s.tagName === 'IMG') return { title: 'Image', html: `<button class="btn" id="imSwap">Swap image…</button><label class="field">Describe it for people who can’t see it<input class="inp" id="imAlt" value="${esc(s.getAttribute('alt') || '')}"></label>`, bind: b => {
-    $('#imSwap', b).onclick = () => pickMedia('image', p => act(`Swapped an image for ${p.split('/').pop()}`, () => s.setAttribute('src', relPath(S.page, p)), { devLabel: false }));
-    $('#imAlt', b).onchange = e => act('Described an image', () => s.setAttribute('alt', e.target.value), { render: false, devLabel: false });
+  if (s.tagName === 'IMG' && s.parentElement && s.parentElement.tagName === 'A') { const a = s.parentElement; return { title: 'Link (on this photo)', html: linkHtml(a), bind: b => bindLink(b, a) }; }
+  if (s.classList.contains('se-frame')) return { title: 'Photo frame', html: `<div class="grid2"><button class="btn" id="frPick">${s.querySelector('img') ? 'Swap photo…' : 'Add a photo…'}</button><button class="btn" id="frCrop" ${s.querySelector('img') ? '' : 'disabled'}>Crop…</button></div>
+      <div class="field">Shape${seg('frShape', [['rect', 'Square'], ['round', 'Rounded'], ['circle', 'Circle'], ['portrait', '3 : 4']], '')}</div>
+      <button class="btn" id="frLink">Make it clickable</button>`, bind: b => {
+    $('#frPick', b).onclick = () => linkImageFromComputer(rEl(S.sel));
+    $('#frCrop', b).onclick = () => startCrop(S.sel);
+    $('#frLink', b).onclick = () => wrapInLink(s);
+    bindSeg(b, 'frShape', v => { const w = rEl(S.sel).getBoundingClientRect().width; setStyle(v === 'circle' ? { 'border-radius': '50%', height: Math.round(w) + 'px' } : v === 'round' ? { 'border-radius': '16px' } : v === 'portrait' ? { 'border-radius': '0', height: Math.round(w * 4 / 3) + 'px' } : { 'border-radius': '0' }, null, 'shape'); });
+  } };
+  if (s.tagName === 'IMG') return { title: 'Image', html: `<div class="grid2"><button class="btn" id="imSwap">Swap image…</button><button class="btn" id="imLink">Make it clickable</button></div><label class="field">Describe it for people who can’t see it<input class="inp" id="imAlt" value="${esc(s.getAttribute('alt') || '')}"></label>`, bind: b => {
+    $('#imSwap', b).onclick = () => linkImageFromComputer(rEl(S.sel));
+    $('#imLink', b).onclick = () => wrapInLink(s);
+    $('#imAlt', b).onchange = e => act('Described an image', () => s.setAttribute('alt', e.target.value), Q);
   } };
   return null;
 }
@@ -432,14 +496,14 @@ function linkHtml(s) {
 }
 function bindLink(b, s) {
   bindSeg(b, 'lkind', v => { S.linkKind = v; renderPanels(); });
-  const setHref = (h, label, pop) => act(`Pointed ${nameOf(s)} to ${label}`, () => { s.setAttribute('href', h); if (pop) s.setAttribute('data-se-open', pop); else s.removeAttribute('data-se-open'); }, { render: false, devLabel: false });
+  const setHref = (h, label, pop) => act(`Pointed ${nameOf(s)} to ${label}`, () => { s.setAttribute('href', h); if (pop) s.setAttribute('data-se-open', pop); else s.removeAttribute('data-se-open'); }, Q);
   $$('[data-href]', b).forEach(x => x.onclick = () => setHref(x.dataset.href, x.dataset.name));
   $$('[data-pop]', b).forEach(x => x.onclick = () => setHref('#', x.dataset.pop, x.dataset.pop));
   const se = $('#lSearch', b); if (se) se.oninput = () => $$('#lList button', b).forEach(x => { x.hidden = !x.dataset.name.toLowerCase().includes(se.value.toLowerCase()); });
   const u = $('#lUrl', b); if (u) u.onchange = () => { let v = u.value.trim(); if (v && !/^[a-z]+:/i.test(v)) v = 'https://' + v; setHref(v, v.replace(/^https?:\/\//, '')); };
   const m = $('#lMail', b); if (m) m.onchange = () => setHref('mailto:' + m.value.trim(), m.value.trim());
   const up = $('#lUpload', b); if (up) up.onclick = () => pickMedia('doc', p => setHref(relPath(S.page, p), pretty(p.split('/').pop())));
-  bindTog(b, 'newtab', on => act(on ? `Made ${nameOf(s)} open in a new tab` : `Made ${nameOf(s)} open in the same tab`, () => { if (on) { s.setAttribute('target', '_blank'); s.setAttribute('rel', 'noopener'); } else { s.removeAttribute('target'); s.removeAttribute('rel'); } }, { render: false, devLabel: false }));
+  bindTog(b, 'newtab', on => act(on ? `Made ${nameOf(s)} open in a new tab` : `Made ${nameOf(s)} open in the same tab`, () => { if (on) { s.setAttribute('target', '_blank'); s.setAttribute('rel', 'noopener'); } else { s.removeAttribute('target'); s.removeAttribute('rel'); } }, Q));
   $('#lPlain', b).onclick = () => turnInto('shape');
 }
 function cdCfg(s) { try { return Object.assign(defaultCountdown(), JSON.parse(s.getAttribute('data-se-countdown') || '{}')); } catch (e) { return defaultCountdown(); } }
@@ -463,7 +527,7 @@ function cdHtml(s) {
 function bindCountdown(b, s) {
   const save = (label, mut) => {
     const n = cdCfg(s); mut(n);
-    act(label, () => s.setAttribute('data-se-countdown', JSON.stringify(n)), { render: false, devLabel: false });
+    act(label, () => s.setAttribute('data-se-countdown', JSON.stringify(n)), Q);
     const r = rEl(S.sel); if (r) { r.setAttribute('data-se-countdown', JSON.stringify(n)); r.__seLast = null; try { fwin().SEWidgets.refresh(); } catch (e) { /* not ready */ } }
     setTimeout(drawSelection, 50);
   };
@@ -513,9 +577,9 @@ function bindExpand(b, s) {
   const attr = s.hasAttribute('data-pdf') ? 'data-pdf' : 'data-se-doc';
   $('#exTitle', b).onchange = e => act('Changed an expanding row’s title', () => { let sm = s.querySelector('summary'); if (!sm) { sm = getDoc(S.page).createElement('summary'); s.prepend(sm); } sm.textContent = e.target.value; assignIds(getDoc(S.page)); }, { devLabel: false });
   bindTog(b, 'exOpen', on => { const id = s.getAttribute('data-se-id'); if (on) S.openDetails.add(id); else S.openDetails.delete(id); const r = rEl(id); if (r) r.open = on; setTimeout(drawSelection, 30); });
-  bindTog(b, 'exStart', on => act(on ? 'Made a row start open' : 'Made a row start closed', () => { if (on) s.setAttribute('open', ''); else s.removeAttribute('open'); }, { render: false, devLabel: false }));
-  $('#exDoc', b).onclick = () => pickMedia('doc', p => act(`Put ${pretty(p.split('/').pop())} inside an expanding row`, () => s.setAttribute(attr, relPath(S.page, p)), { render: false, devLabel: false }));
-  const nd = $('#exNoDoc', b); if (nd) nd.onclick = () => act('Removed a document from an expanding row', () => s.removeAttribute(attr), { render: false, devLabel: false });
+  bindTog(b, 'exStart', on => act(on ? 'Made a row start open' : 'Made a row start closed', () => { if (on) s.setAttribute('open', ''); else s.removeAttribute('open'); }, Q));
+  $('#exDoc', b).onclick = () => pickMedia('doc', p => act(`Put ${pretty(p.split('/').pop())} inside an expanding row`, () => s.setAttribute(attr, relPath(S.page, p)), Q));
+  const nd = $('#exNoDoc', b); if (nd) nd.onclick = () => act('Removed a document from an expanding row', () => s.removeAttribute(attr), Q);
 }
 function tabsCandidates() {
   const doc = getDoc(S.page), root = doc.querySelector('main') || doc.body;
@@ -553,7 +617,7 @@ function motionCfg(s) { try { return Object.assign({ effect: 'none', trigger: 'l
 function motionSection(s) {
   const c = motionCfg(s), tl = tlCfg(s), hasGrad = /gradient/.test(s.getAttribute('data-se-grad') || '') || !!s.getAttribute('data-se-grad');
   const FX = [['none', 'None'], ['fade', 'Fade in'], ['slide', 'Slide in'], ['grow', 'Grow'], ['spin', 'Spin'], ['float', 'Float'], ['pulse', 'Pulse']].concat(hasGrad ? [['flow', 'Flowing color']] : []);
-  const T = [['load', 'When the page loads'], ['view', 'When scrolled into view'], ['hover', 'When hovered'], ['click', 'When clicked']];
+  const T = [['load', 'When the page loads'], ['view', 'When scrolled into view'], ['hover', 'When hovered'], ['parent', 'When what it’s inside is hovered'], ['click', 'When clicked']];
   return `<div class="fx-grid">${FX.map(([k, l]) => `<button data-fx="${k}" class="${c.effect === k ? 'on' : ''}">${icon(I[k] || I.grad)}${l}</button>`).join('')}</div>
     ${c.effect !== 'none' ? `<span class="h">Play it</span><div class="radio-list">${T.map(([k, l]) => `<label><input type="radio" name="mtrig" value="${k}" ${c.trigger === k ? 'checked' : ''}>${l}</label>`).join('')}</div>
       ${c.effect === 'spin' ? `<div class="field">Direction${seg('mdir', [['cw', 'Clockwise'], ['ccw', 'Counter-clockwise']], c.dir || 'cw')}</div>` : ''}
@@ -570,13 +634,13 @@ function bindMotion(b, s) {
   const playIt = () => { const r = rEl(S.sel); try { if (r) fwin().SEWidgets.playMotion(r); } catch (e) { /* ignore */ } };
   const save = (label, mut) => {
     const n = motionCfg(s); mut(n);
-    act(label, () => { if (n.effect === 'none') s.removeAttribute('data-se-motion'); else s.setAttribute('data-se-motion', JSON.stringify(n)); if (n.effect === 'flow') return applyOwn(s, { 'background-size': '300% 100%' }); }, { render: false, devLabel: false });
+    act(label, () => { if (n.effect === 'none') s.removeAttribute('data-se-motion'); else s.setAttribute('data-se-motion', JSON.stringify(n)); if (n.effect === 'flow') return applyOwn(s, { 'background-size': '300% 100%' }); }, Q);
     const r = rEl(S.sel); if (r) { if (n.effect === 'none') r.removeAttribute('data-se-motion'); else { r.setAttribute('data-se-motion', JSON.stringify(n)); setTimeout(playIt, 60); } }
   };
   $$('[data-fx]', b).forEach(x => x.onclick = () => save(x.dataset.fx === 'none' ? `Removed the effect from ${nameOf(s)}` : `Gave ${nameOf(s)} the ${x.textContent.trim().toLowerCase()} effect`, n => {
     n.effect = x.dataset.fx; if (['spin', 'float', 'pulse', 'flow'].includes(n.effect)) n.repeat = 'forever'; else if (n.effect !== 'none') n.repeat = 'once';
   }));
-  $$('input[name="mtrig"]', b).forEach(r => r.onchange = () => save('Changed when an effect plays', n => { n.trigger = r.value; }));
+  $$('input[name="mtrig"]', b).forEach(r => r.onchange = () => save('Changed when an effect plays', n => { n.trigger = r.value; if (r.value === 'parent') { const h = fxHosts(s)[0]; n.host = h ? keyOf(h, true) : ''; } }));
   bindSeg(b, 'mdir', v => save('Changed which way something spins', n => { n.dir = v; }));
   bindSeg(b, 'mspeed', v => save('Changed an effect’s speed', n => { if (v === 'exact') n.secs = n.effect === 'spin' ? 20 : n.effect === 'flow' ? 8 : 1; else { delete n.secs; n.speed = v; } }));
   const secs = $('#mSecs', b); if (secs) secs.onchange = () => save('Changed an effect’s speed', n => { n.secs = Math.max(0.1, parseFloat(secs.value) || 1); });
@@ -641,7 +705,7 @@ function renderCharacter(box) {
     for (const t of styles) s.classList.remove(t.cls);
     if (st.value) s.classList.add(st.value);
     const r2 = rEl(S.sel); if (r2) { for (const t of styles) r2.classList.remove(t.cls); if (st.value) r2.classList.add(st.value); }
-  }, { render: false, devLabel: false });
+  }, Q);
 }
 
 /* ============ Layers panel ============ */
@@ -700,7 +764,7 @@ function renderLayers(box) {
       nm.innerHTML = `<input class="inp" value="${esc(nameOf(s))}" style="height:24px">`;
       const inp = $('input', nm); inp.focus(); inp.select();
       inp.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') inp.blur(); if (e.key === 'Escape') { inp.value = nameOf(s); inp.blur(); } };
-      inp.onblur = () => { const v = inp.value.trim(); if (v && v !== nameOf(s)) act('Renamed a layer', () => s.setAttribute('data-se-name', v), { render: false, devLabel: false }); else renderLayers(box); };
+      inp.onblur = () => { const v = inp.value.trim(); if (v && v !== nameOf(s)) act('Renamed a layer', () => s.setAttribute('data-se-name', v), Q); else renderLayers(box); };
     };
     row.ondragstart = e => { e.dataTransfer.setData('text/se-layer', id); e.dataTransfer.effectAllowed = 'move'; };
     row.ondragover = e => {
@@ -790,7 +854,7 @@ function newPage() {
       while (S.files.has(p)) p = p.replace(/(-\d+)?\.html$/, `-${n++}.html`);
       const html = serializeDoc(getDoc(S.page)).replace(/<title>[\s\S]*?<\/title>/i, `<title>${esc(name)}</title>`);
       S.undo.push(snapshot(`Made a new page called ${name}`));
-      S.files.set(p, { kind: 'text', text: html, type: 'text/html', dirty: true, isNew: true });
+      addFile(p, { kind: 'text', text: html, type: 'text/html', dirty: true, isNew: true });
       logChange(`Made a new page called ${name}`, name);
       switchPage(p);
     }]]);
@@ -801,8 +865,8 @@ function renderHistory(box) {
   box.innerHTML = `<div class="list history-list">${items.map(([l, i]) => `<button class="item ${i === S.undo.length - 1 ? 'on' : ''}" data-h="${i}">${esc(l)}</button>`).join('')}
     ${fut.map((l, j) => `<button class="item future" data-f="${j}">${esc(l)}</button>`).join('')}</div>
     <p class="panel-note">Click any step to jump back to it. Steps after it stay greyed out until you do something new.</p>`;
-  $$('[data-h]', box).forEach(b => b.onclick = () => { const target = +b.dataset.h; let n = S.undo.length - 1 - target; while (n-- > 0) undo(); });
-  $$('[data-f]', box).forEach(b => b.onclick = () => { let n = +b.dataset.f + 1; while (n-- > 0) redo(); });
+  $$('[data-h]', box).forEach(b => b.onclick = () => { const n = S.undo.length - 1 - +b.dataset.h; if (n > 0) undo(n); });
+  $$('[data-f]', box).forEach(b => b.onclick = () => redo(+b.dataset.f + 1));
   const on = $('.item.on', box); if (on) on.scrollIntoView({ block: 'nearest' });
 }
 
@@ -825,12 +889,12 @@ function editColorModal(c) {
   const hex = resolvedHex(c.value);
   modal(`Change ${c.name}`, `<p class="hint">Everything on the site that uses ${esc(c.name)} will update.</p>
     <div style="display:flex;align-items:center;gap:12px"><input type="color" id="ecVal" value="${hex === 'transparent' ? '#000000' : hex}" style="width:64px;height:44px;padding:0;border:1px solid var(--line);background:none"><input class="inp num" id="ecHex" value="${hex}" style="width:120px"></div>`,
-    [['Cancel'], ['Update everywhere', true, () => { const v = $('#ecHex').value.trim(); act(`Changed the team color ${c.name}`, () => setDecl(c.path, ':root', c.prop, v), { where: 'Every page', pageDirty: false, devLabel: false }); }]]);
+    [['Cancel'], ['Update everywhere', true, () => { const v = $('#ecHex').value.trim(); if (!/^#[0-9a-f]{6}$/i.test(v)) { toast('Use a color like #08A19A'); return false; } act(`Changed the team color ${c.name}`, () => setDecl(c.path, ':root', c.prop, v), { where: 'Every page', pageDirty: false, devLabel: false }); }]]);
   $('#ecVal').oninput = e => { $('#ecHex').value = e.target.value.toUpperCase(); };
 }
 function addColorModal() {
   modal('Add a team color', `<label class="field">Name<input class="inp" id="acName" placeholder="e.g. Sunset orange"></label>
-    <div style="display:flex;align-items:center;gap:12px"><input type="color" id="acVal" value="#F05A28" style="width:64px;height:44px;padding:0;border:1px solid var(--line);background:none"><span class="hint">Pick the color</span></div>`,
+    <div style="display:flex;align-items:center;gap:12px"><input type="color" id="acVal" value="#CA374D" style="width:64px;height:44px;padding:0;border:1px solid var(--line);background:none"><span class="hint">Pick the color</span></div>`,
     [['Cancel'], ['Add color', true, () => {
       const name = $('#acName').value.trim(); if (!name) { toast('Give the color a name'); return false; }
       const prop = '--' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -843,6 +907,7 @@ function addFontModal() {
   modal('Add a team font', `<label class="field">Font name<input class="inp" id="afName" list="afList" placeholder="Start typing, e.g. Rajdhani"></label><datalist id="afList">${POPULAR_FONTS.map(f => `<option value="${f}">`).join('')}</datalist><p class="hint">Any font from Google Fonts works. Type its name exactly as it appears there.</p>`,
     [['Cancel'], ['Add font', true, () => {
       const name = $('#afName').value.trim(); if (!name) { toast('Type a font name first'); return false; }
+      if (!/^[A-Za-z0-9 ]{2,40}$/.test(name)) { toast('Font names only use letters, numbers and spaces'); return false; }
       if (teamFonts().includes(name)) { toast(`${name} is already a team font`); return; }
       const path = mainSheet(true), line = `@import url('https://fonts.googleapis.com/css2?family=${name.replace(/ /g, '+')}:wght@400;500;600;700;800&display=swap');\n`;
       act(`Added the team font ${name}`, () => { const css = fileText(path) || '', m = css.match(/^@charset[^;]*;\s*/i); setText(path, m ? m[0] + line + css.slice(m[0].length) : line + css); }, { where: 'Every page', pageDirty: false, devLabel: false });
@@ -901,4 +966,341 @@ function renderData(box) {
   });
   $$('[data-del]', box).forEach(b => b.onclick = () => { const [li, ri] = b.dataset.del.split('|').map(Number); const L = lists[li], rows = L.rows.filter((_, i) => i !== ri); writeList(L, rows); });
   $$('[data-add]', box).forEach(b => b.onclick = () => { const L = lists[+b.dataset.add], rows = JSON.parse(JSON.stringify(L.rows)); rows.push(Object.assign({}, rows[rows.length - 1])); writeList(L, rows); });
+}
+
+textStyles = memo(textStyles);
+findLists = memo(findLists);
+
+/* ============ Effects panel ============
+   Each effect is a small recipe: how the thing looks at rest, and how it looks
+   when it's "on" (hovered, pressed, or when what it's inside is hovered).
+   Recipes become CSS rules in se-styles.css, so the published site needs no code. */
+const FXW = { always: 'Always', hover: 'When hovered', parent: 'When what it’s inside is hovered', press: 'When pressed' };
+const T = o => o.frame ? 'img' : 'host';
+const mix = (c, pct) => `color-mix(in srgb, ${c} ${pct}%, transparent)`;
+const FX = {
+  brighten: { name: 'Brighten', types: ['photo'], whens: ['hover', 'parent'], d: 30, rest: o => ({ [T(o)]: { 'filter+': `brightness(${(1 - o.s / 200).toFixed(2)})` } }), on: () => ({ host: {}, img: {} }), onT: o => ({ [T(o)]: { 'filter+': 'brightness(1)' } }) },
+  zoom: { name: 'Zoom in', types: ['photo'], whens: ['hover', 'parent'], d: 20, overflow: true, rest: o => ({ [T(o)]: { 'transform+': 'scale(1)' } }), onT: o => ({ [T(o)]: { 'transform+': `scale(${(1 + o.s / 400).toFixed(3)})` } }) },
+  gray: { name: 'Black & white until hovered', types: ['photo'], whens: ['hover', 'parent', 'always'], d: 100, rest: o => ({ [T(o)]: { 'filter+': `grayscale(${o.s / 100})` } }), onT: o => ({ [T(o)]: { 'filter+': 'grayscale(0)' } }), always: o => ({ [T(o)]: { 'filter+': `grayscale(${o.s / 100})` } }) },
+  line: { name: 'Line', types: ['photo', 'shape', 'button'], whens: ['hover', 'parent', 'always'], d: 25, color: true, edge: true,
+    rest: o => ({ after: lineCss(o, 0) }), onT: o => ({ after: { transform: 'scale(1)' } }), always: o => ({ after: lineCss(o, 1) }) },
+  border: { name: 'Border', types: ['photo', 'shape', 'button', 'text'], whens: ['always', 'hover', 'parent'], d: 20, color: true,
+    rest: o => ({ host: { outline: `${px(o)} solid transparent`, 'outline-offset': `-${px(o)}` } }), onT: o => ({ host: { 'outline-color': o.color } }), always: o => ({ host: { outline: `${px(o)} solid ${o.color}`, 'outline-offset': `-${px(o)}` } }) },
+  fade: { name: 'Bottom fade', types: ['photo', 'shape'], whens: ['always', 'hover', 'parent'], d: 60, color: true, dark: true,
+    rest: o => ({ before: Object.assign(pseudo(), { left: '0', right: '0', bottom: '0', height: o.s + '%', background: `linear-gradient(to top, ${mix(o.color, 85)}, transparent)`, opacity: '0' }) }), onT: () => ({ before: { opacity: '1' } }),
+    always: o => ({ before: Object.assign(pseudo(), { left: '0', right: '0', bottom: '0', height: o.s + '%', background: `linear-gradient(to top, ${mix(o.color, 85)}, transparent)` }) }) },
+  vignette: { name: 'Vignette (dark edges)', types: ['photo', 'shape'], whens: ['always', 'hover', 'parent'], d: 50, color: true, dark: true,
+    rest: o => ({ before: Object.assign(pseudo(), { inset: '0', 'box-shadow': `inset 0 0 ${Math.round(o.s * 1.2)}px ${Math.round(o.s / 4)}px ${mix(o.color, 70)}`, opacity: '0' }) }), onT: () => ({ before: { opacity: '1' } }),
+    always: o => ({ before: Object.assign(pseudo(), { inset: '0', 'box-shadow': `inset 0 0 ${Math.round(o.s * 1.2)}px ${Math.round(o.s / 4)}px ${mix(o.color, 70)}` }) }) },
+  tint: { name: 'Color tint', types: ['photo', 'shape'], whens: ['always', 'hover', 'parent'], d: 30, color: true,
+    rest: o => ({ before: Object.assign(pseudo(), { inset: '0', background: o.color, opacity: '0' }) }), onT: o => ({ before: { opacity: (o.s / 100).toFixed(2) } }),
+    always: o => ({ before: Object.assign(pseudo(), { inset: '0', background: o.color, opacity: (o.s / 100).toFixed(2) }) }) },
+  blur: { name: 'Blur until hovered', types: ['photo'], whens: ['hover', 'parent', 'always'], d: 20, rest: o => ({ [T(o)]: { 'filter+': `blur(${(o.s / 10).toFixed(1)}px)` } }), onT: o => ({ [T(o)]: { 'filter+': 'blur(0)' } }), always: o => ({ [T(o)]: { 'filter+': `blur(${(o.s / 10).toFixed(1)}px)` } }) },
+  shadow: { name: 'Shadow', types: ['photo', 'shape', 'button'], whens: ['always', 'hover', 'parent'], d: 40, rest: () => ({ host: { 'box-shadow+': '0 0 0 transparent' } }), onT: o => ({ host: { 'box-shadow+': shadowCss(o) } }), always: o => ({ host: { 'box-shadow+': shadowCss(o) } }) },
+  glow: { name: 'Glow', types: ['photo', 'shape', 'button'], whens: ['hover', 'parent', 'always'], d: 40, color: true, rest: () => ({ host: { 'box-shadow+': '0 0 0 transparent' } }), onT: o => ({ host: { 'box-shadow+': `0 0 ${Math.round(o.s / 2.5)}px ${o.color}` } }), always: o => ({ host: { 'box-shadow+': `0 0 ${Math.round(o.s / 2.5)}px ${o.color}` } }) },
+  lift: { name: 'Lift up', types: ['photo', 'shape', 'button'], whens: ['hover', 'parent'], d: 40, rest: () => ({ host: { 'transform+': 'translateY(0)' } }), onT: o => ({ host: { 'transform+': `translateY(-${Math.round(o.s / 8)}px)` } }) },
+  corners: { name: 'Corner brackets', types: ['photo', 'shape'], whens: ['always', 'hover', 'parent'], d: 40, color: true,
+    rest: o => ({ after: Object.assign(cornerCss(o), { opacity: '0' }) }), onT: () => ({ after: { opacity: '1' } }), always: o => ({ after: cornerCss(o) }) },
+  glass: { name: 'Frosted glass', types: ['shape'], whens: ['always'], d: 40, color: true, rest: o => ({ host: { 'background-color': mix(o.color, 25), 'backdrop-filter': `blur(${Math.round(o.s / 5)}px)` } }), always: o => ({ host: { 'background-color': mix(o.color, 25), 'backdrop-filter': `blur(${Math.round(o.s / 5)}px)` } }) },
+  underline: { name: 'Underline slides in', types: ['text'], whens: ['hover', 'parent', 'always'], d: 20, color: true,
+    rest: o => ({ after: Object.assign(pseudo(), { left: '0', bottom: '-4px', width: '100%', height: px(o), background: o.color, transform: 'scaleX(0)', 'transform-origin': 'left' }) }), onT: () => ({ after: { transform: 'scaleX(1)' } }),
+    always: o => ({ after: Object.assign(pseudo(), { left: '0', bottom: '-4px', width: '100%', height: px(o), background: o.color }) }) },
+  highlight: { name: 'Highlight behind words', types: ['text'], whens: ['always', 'hover', 'parent'], d: 40, color: true,
+    rest: o => ({ host: { 'background-image': `linear-gradient(transparent ${100 - o.s}%, ${mix(o.color, 60)} ${100 - o.s}%)`, 'background-repeat': 'no-repeat', 'background-size': '0% 100%' } }), onT: () => ({ host: { 'background-size': '100% 100%' } }),
+    always: o => ({ host: { 'background-image': `linear-gradient(transparent ${100 - o.s}%, ${mix(o.color, 60)} ${100 - o.s}%)` } }) },
+  textGlow: { name: 'Glow', types: ['text'], whens: ['always', 'hover', 'parent'], d: 40, color: true, rest: () => ({ host: { 'text-shadow': '0 0 0 transparent' } }), onT: o => ({ host: { 'text-shadow': `0 0 ${Math.round(o.s / 3)}px ${o.color}` } }), always: o => ({ host: { 'text-shadow': `0 0 ${Math.round(o.s / 3)}px ${o.color}` } }) },
+  gradText: { name: 'Gradient color', types: ['text'], whens: ['always'], d: 100, color: true, rest: o => ({ host: gradTextCss(o) }), always: o => ({ host: gradTextCss(o) }) },
+  stroke: { name: 'Outline letters', types: ['text'], whens: ['always'], d: 15, color: true, rest: o => ({ host: { '-webkit-text-stroke': `${Math.max(1, Math.round(o.s / 15))}px ${o.color}` } }), always: o => ({ host: { '-webkit-text-stroke': `${Math.max(1, Math.round(o.s / 15))}px ${o.color}` } }) },
+  spacing: { name: 'Letters spread out', types: ['text'], whens: ['hover', 'parent'], d: 30, rest: () => ({ host: { 'letter-spacing': 'normal' } }), onT: o => ({ host: { 'letter-spacing': (o.s / 300).toFixed(2) + 'em' } }) },
+  sweep: { name: 'Color sweeps in', types: ['button'], whens: ['hover', 'parent'], d: 100, color: true, overflow: true,
+    rest: o => ({ host: { isolation: 'isolate' }, before: Object.assign(pseudo(), { inset: '0', background: o.color, transform: 'scaleX(0)', 'transform-origin': 'left', 'z-index': '-1' }) }), onT: () => ({ before: { transform: 'scaleX(1)' } }) },
+  arrow: { name: 'Arrow slides', types: ['button'], whens: ['hover', 'parent'], d: 40, rest: () => ({ after: { content: '"→"', display: 'inline-block', 'margin-left': '8px', transform: 'translateX(0)' } }), onT: o => ({ after: { transform: `translateX(${Math.round(o.s / 8)}px)` } }) },
+  press: { name: 'Press down', types: ['button'], whens: ['press'], d: 40, rest: () => ({ host: { 'transform+': 'scale(1)' } }), onT: o => ({ host: { 'transform+': `scale(${(1 - o.s / 1000).toFixed(3)})` } }) }
+};
+function px(o) { return Math.max(1, Math.round(o.s / 10)) + 'px'; }
+function pseudo() { return { content: '""', position: 'absolute', 'pointer-events': 'none' }; }
+function shadowCss(o) { return `0 ${Math.round(o.s / 6)}px ${Math.round(o.s / 2)}px rgba(0,0,0,${(0.15 + o.s / 300).toFixed(2)})`; }
+function lineCss(o, shown) {
+  const t = Math.max(1, Math.round(o.s / 12)) + 'px', e = o.edge || 'bottom', horiz = e === 'bottom' || e === 'top';
+  return Object.assign(pseudo(), { [e]: '0', [horiz ? 'left' : 'top']: '0', [horiz ? 'right' : 'bottom']: '0', [horiz ? 'height' : 'width']: t, background: o.color, 'z-index': '2',
+    transform: shown ? 'scale(1)' : (horiz ? 'scaleX(0)' : 'scaleY(0)'), 'transform-origin': horiz ? 'left' : 'top' });
+}
+function cornerCss(o) {
+  const L = Math.round(10 + o.s / 3) + 'px', w = '2px', c = `linear-gradient(${o.color}, ${o.color})`;
+  return Object.assign(pseudo(), { inset: '6px', 'background-image': `${c}, ${c}, ${c}, ${c}`, 'background-repeat': 'no-repeat',
+    'background-size': `${L} ${w}, ${w} ${L}, ${L} ${w}, ${w} ${L}`, 'background-position': 'left top, left top, right bottom, right bottom' });
+}
+function gradTextCss(o) { const c2 = (teamColors()[1] || {}).prop; return { 'background-image': `linear-gradient(90deg, ${o.color}, ${c2 ? `var(${c2})` : '#FFFFFF'})`, '-webkit-background-clip': 'text', 'background-clip': 'text', color: 'transparent' }; }
+function fxType(s) {
+  if (s.tagName === 'IMG' || s.classList.contains('se-frame')) return 'photo';
+  if (s.tagName === 'A' || s.tagName === 'BUTTON') return 'button';
+  const r = rEl(s.getAttribute('data-se-id'));
+  return r && textish(r) && !s.children.length ? 'text' : 'shape';
+}
+function fxCfg(s) { try { return JSON.parse(s.getAttribute('data-se-fx') || '{}'); } catch (e) { return {}; } }
+function defaultFxColor() { const c = teamColors()[0]; return c ? `var(${c.prop})` : '#CA374D'; }
+/* "When what it's inside is hovered": the box that gets hovered, picked from what it sits inside */
+function fxHosts(s) { const out = []; for (let p = s.parentElement; p && p.tagName !== 'BODY' && out.length < 4; p = p.parentElement) if (p.hasAttribute('data-se-id')) out.push(p); return out; }
+function compileFx(s) {
+  const key = keyOf(s, true), cfg = fxCfg(s), host = selOf(key) + '[data-se-fx]';
+  const r = rEl(s.getAttribute('data-se-id')), cs = r ? fwin().getComputedStyle(r) : null;
+  const frame = s.classList.contains('se-frame');
+  const rules = {}, always = {};
+  const SEP = { filter: ' ', transform: ' ', 'box-shadow': ', ' };
+  const add = (sel, props, keepAlways) => {
+    const o = rules[sel] || (rules[sel] = {});
+    for (const [k, v] of Object.entries(props)) {
+      if (k.endsWith('+')) { const p = k.slice(0, -1); o[p] = o[p] ? o[p] + SEP[p] + v : v; if (keepAlways) (always[keepAlways + p] = always[keepAlways + p] || []).push(v); }
+      else o[k] = v;
+    }
+  };
+  let pseudos = new Set(), overflow = false;
+  const speed = { slow: 0.6, normal: 0.3, fast: 0.15 }[cfg._speed || 'normal'];
+  const onSels = [];
+  for (const [id, o0] of Object.entries(cfg)) {
+    const d = FX[id]; if (!d || !o0 || !o0.on) continue;
+    const o = { s: o0.s == null ? d.d : o0.s, color: o0.color || (d.dark ? '#000000' : defaultFxColor()), edge: o0.edge, frame };
+    const when = d.whens.includes(o0.when) ? o0.when : d.whens[0];
+    let onSel = null;
+    if (when === 'hover') onSel = `${host}:hover`;
+    else if (when === 'press') onSel = `${host}:active`;
+    else if (when === 'parent') { const hs = fxHosts(s); const h = hs.find(x => keyOf(x, false) === o0.host) || hs[0]; onSel = h ? `${selOf(keyOf(h, true))}:hover ${host}` : `${host}:hover`; }
+    const rest = when === 'always' ? (d.always || d.rest)(o) : d.rest(o), on = when === 'always' ? null : (d.onT || d.on)(o);
+    for (const part of ['host', 'img', 'before', 'after']) {
+      const suf = part === 'host' ? '' : part === 'img' ? ' > img' : '::' + part;
+      if (rest[part]) add(host + suf, rest[part], when === 'always' ? part : null);
+      if (on && on[part] && Object.keys(on[part]).length) { add(onSel + suf, on[part]); onSels.push([onSel + suf, part]); }
+      if ((part === 'before' || part === 'after') && (rest[part] || on && on[part])) pseudos.add(part);
+    }
+    if (d.overflow) overflow = true;
+  }
+  /* An always-on filter or shadow must stay when a hover rule replaces the whole value */
+  for (const [sel, part] of onSels) for (const p of ['filter', 'transform', 'box-shadow']) { const a = always[part + p]; if (a && rules[sel][p]) rules[sel][p] = a.join(SEP[p]) + SEP[p] + rules[sel][p]; }
+  if (!Object.keys(rules).length) return {};
+  const tr = { 'transition-property': 'filter, transform, box-shadow, opacity, outline-color, background-size, letter-spacing, text-shadow', 'transition-duration': speed + 's', 'transition-timing-function': 'ease' };
+  add(host, tr);
+  for (const p of pseudos) add(`${host}::${p}`, tr);
+  if (frame) add(host + ' > img', tr);
+  if (pseudos.size && cs && cs.position === 'static') add(host, { position: 'relative' });
+  if (overflow) add(host, { overflow: 'hidden' });
+  return rules;
+}
+function clearFxRules(key) { for (const sel of Object.keys(S.sty.desktop)) if (sel.includes(`.${key}.`) && sel.includes('[data-se-fx]')) delete S.sty.desktop[sel]; }
+function saveFx(s, cfg, label) {
+  const id = s.getAttribute('data-se-id');
+  const any = Object.entries(cfg).some(([k, v]) => FX[k] && v && v.on);
+  act(label, () => {
+    const key = keyOf(s, true); clearFxRules(key);
+    if (any) { s.setAttribute('data-se-fx', JSON.stringify(cfg)); const r = rEl(id); if (r) r.setAttribute('data-se-fx', ''); for (const [sel, props] of Object.entries(compileFx(s))) putSty(sel, props, 'desktop'); }
+    else { s.removeAttribute('data-se-fx'); const r = rEl(id); if (r) r.removeAttribute('data-se-fx'); }
+    writeSty(); return ensureStyLink();
+  }, { render: false, cssPath: SE_CSS, devLabel: false });
+}
+/* A bare image can't show lines, fades or brackets, so it moves into a photo frame first */
+function wrapInFrame(s, then) {
+  let fid;
+  act(`Put ${nameOf(s)} in a photo frame`, () => {
+    const doc = getDoc(S.page), f = doc.createElement('div'), key = keyOf(s, false);
+    f.className = 'se-frame' + (key ? ' ' + key : ''); if (key) s.classList.remove(key);
+    s.before(f); f.appendChild(s); assignIds(doc); fid = f.getAttribute('data-se-id');
+    const r = rEl(s.getAttribute('data-se-id'));
+    if (!key && r) { const b = r.getBoundingClientRect(); applyOwn(f, { width: Math.round(b.width) + 'px', height: Math.round(b.height) + 'px' }, { device: 'desktop' }); }
+    return true;
+  }, { devLabel: false });
+  setTimeout(() => { select(fid); if (then) setTimeout(() => then(sEl(fid)), 150); }, 150);
+}
+function renderEffects(box) {
+  const s = sEl(S.sel);
+  if (!s || S.multi.length) { box.innerHTML = `<p class="panel-note">${S.multi.length ? 'Select one thing at a time to give it effects.' : 'Select a photo, text, shape or button to give it effects like a glow, a line that slides in, or a fade.'}</p>`; return; }
+  const type = fxType(s), cfg = fxCfg(s), list = Object.entries(FX).filter(([, d]) => d.types.includes(type));
+  const label = { photo: 'Photo', text: 'Text', shape: 'Shape', button: 'Button' }[type];
+  const hosts = fxHosts(s);
+  box.innerHTML = `<div class="stack"><span class="hint">${label} effects for ${esc(nameOf(s))}. Hover it on the page to see them.</span>
+    <div class="field">Speed${seg('fxspeed', [['slow', 'Slow'], ['normal', 'Normal'], ['fast', 'Fast']], cfg._speed || 'normal')}</div></div>
+    ${list.map(([id, d]) => { const o = cfg[id] || {}, on = !!o.on, when = d.whens.includes(o.when) ? o.when : d.whens[0];
+      return `<div class="fx ${on ? 'open' : ''}" data-fx-id="${id}">${tog('fx-' + id, on, d.name)}
+        ${on ? `<div class="fx-b">
+          ${d.whens.length > 1 ? `<label class="field">When<select class="inp" data-fxk="when">${d.whens.map(w => `<option value="${w}" ${w === when ? 'selected' : ''}>${FXW[w]}</option>`).join('')}</select></label>` : `<span class="hint">${FXW[d.whens[0]]}</span>`}
+          ${when === 'parent' && hosts.length ? `<label class="field">Which box<select class="inp" data-fxk="host">${hosts.map(h => `<option value="${keyOf(h, false) || ''}" data-hid="${h.getAttribute('data-se-id')}" ${keyOf(h, false) === o.host ? 'selected' : ''}>${esc(nameOf(h))}</option>`).join('')}</select></label>` : ''}
+          <label class="field">Strength<input type="range" min="1" max="100" value="${o.s == null ? d.d : o.s}" data-fxk="s"></label>
+          ${d.edge ? `<div class="field">Edge${seg('edge-' + id, [['bottom', 'Bottom'], ['top', 'Top'], ['left', 'Left'], ['right', 'Right']], o.edge || 'bottom')}</div>` : ''}
+          ${d.color ? `<div class="field">Color<div class="swatches">${teamColors().map(c => `<button class="swatch ${o.color === `var(${c.prop})` ? 'on' : ''}" data-fxc="var(${c.prop})" title="${esc(c.name)}" aria-label="${esc(c.name)}" style="background:${esc(c.value)}"></button>`).join('')}<button class="swatch ${o.color === '#000000' ? 'on' : ''}" data-fxc="#000000" title="Black" aria-label="Black" style="background:#000"></button><button class="swatch ${o.color === '#FFFFFF' ? 'on' : ''}" data-fxc="#FFFFFF" title="White" aria-label="White" style="background:#fff"></button></div></div>` : ''}
+        </div>` : ''}</div>`; }).join('')}`;
+  const save = (label, mut) => { const n = fxCfg(s); mut(n); saveFx(s, n, label); };
+  bindSeg(box, 'fxspeed', v => save(`Changed the effect speed on ${nameOf(s)}`, n => { n._speed = v; }));
+  for (const [id, d] of list) {
+    const row = $(`[data-fx-id="${id}"]`, box);
+    bindTog(row, 'fx-' + id, on => {
+      const needsFrame = on && s.tagName === 'IMG' && ['line', 'fade', 'vignette', 'tint', 'corners'].includes(id);
+      if (needsFrame) { wrapInFrame(s, f => { const n = fxCfg(f); n[id] = { on: true }; saveFx(f, n, `Gave ${nameOf(f)} the ${d.name.toLowerCase()} effect`); }); return; }
+      save(on ? `Gave ${nameOf(s)} the ${d.name.toLowerCase()} effect` : `Removed the ${d.name.toLowerCase()} effect from ${nameOf(s)}`, n => { n[id] = Object.assign(n[id] || {}, { on }); });
+    });
+    if (!row.classList.contains('open')) continue;
+    $$('[data-fxk]', row).forEach(inp => inp.onchange = () => save(`Changed the ${d.name.toLowerCase()} effect`, n => {
+      const k = inp.dataset.fxk; n[id] = n[id] || { on: true };
+      if (k === 's') n[id].s = +inp.value;
+      else if (k === 'host') { const h = hosts.find(x => x.getAttribute('data-se-id') === inp.selectedOptions[0].dataset.hid); n[id].host = h ? keyOf(h, true) : ''; }
+      else n[id][k] = inp.value;
+    }));
+    bindSeg(row, 'edge-' + id, v => save(`Changed which edge the line is on`, n => { n[id].edge = v; }));
+    $$('[data-fxc]', row).forEach(b => b.onclick = () => save(`Changed the ${d.name.toLowerCase()} color`, n => { n[id].color = b.dataset.fxc; }));
+  }
+}
+
+/* ============ Help search ============
+   Type in plain words; results are things to do right now, step-by-step
+   guides that point at the real buttons, and shortcuts. Works offline. */
+const SYN = { picture: 'image', photo: 'image', pic: 'image', img: 'image', headshot: 'image', menu: 'menu', nav: 'menu', navbar: 'menu', navigation: 'menu', header: 'menu',
+  clickable: 'link', url: 'link', href: 'link', hyperlink: 'link', colour: 'color', fonts: 'font', typeface: 'font', words: 'text', type: 'text', writing: 'text',
+  animate: 'motion', animation: 'motion', moving: 'motion', spin: 'motion', invisible: 'hide', hidden: 'hide', remove: 'delete', erase: 'delete', trash: 'delete',
+  publish: 'download', upload: 'download', live: 'download', export: 'download', save: 'download', broken: 'missing', gone: 'missing', mobile: 'phone', cellphone: 'phone',
+  timer: 'countdown', clock: 'countdown', modal: 'popup', 'pop-up': 'popup', glow: 'effects', hover: 'effects', effect: 'effects', placeholder: 'frame', cropping: 'crop',
+  same: 'shared', everywhere: 'shared', every: 'shared', magnify: 'zoom', bigger: 'size', smaller: 'size', resize: 'size', drag: 'move', position: 'move', place: 'move',
+  restore: 'undo', mistake: 'undo', oops: 'undo', line: 'align', straight: 'align', even: 'align', several: 'multi', multiple: 'multi', many: 'multi', schedule: 'data', dates: 'data' };
+const HELP = [
+  { t: 'Link a photo from your computer', k: 'image add put insert photo link computer', kind: 'do', run: () => linkImageFromComputer(rEl(S.sel)) },
+  { t: 'Add a photo frame', k: 'frame image placeholder photo add', kind: 'do', run: () => insertCenter('frame'), key: 'F' },
+  { t: 'Crop a photo', k: 'crop image frame zoom slide', kind: 'guide', steps: [['#frameBox', 'Double-click a photo frame on the page.'], ['#frameBox', 'Drag to slide the photo around. Scroll to zoom in.'], ['#frameBox', 'Press Esc or double-click again when it looks right.']] },
+  { t: 'Make something clickable (a button or link)', k: 'link button clickable go page', kind: 'guide', steps: [['#frameBox', 'Right-click the thing you want people to click.'], ['#ctxMenu', 'Choose Turn into → Button. Photos work too.'], ['#dock', 'In Properties → Link, pick where it goes: a page, a website, a file, an email or a pop-up.']] },
+  { t: 'Turn into a button', k: 'button link clickable', kind: 'do', needs: 'sel', run: () => turnInto('button') },
+  { t: 'Make the menu the same on every page', k: 'menu shared every page footer', kind: 'guide', steps: [['#frameBox', 'Click the menu bar (or footer) on any page.'], ['.menus', 'Open Edit → Make shared…'], ['#modal', 'It finds the same menu on your other pages. Click Make shared. Now editing it anywhere changes it everywhere.']] },
+  { t: 'Make shared across pages', k: 'shared every page', kind: 'do', needs: 'sel', run: () => makeShared() },
+  { t: 'Add effects (glow, line, fade, zoom on hover)', k: 'effects hover glow line fade zoom brighten border shadow', kind: 'guide', steps: [['#frameBox', 'Select a photo, text, shape or button.'], ['#dock', 'Open the Effects panel and switch on any effect. Hover the thing on the page to see it.']] , run: () => showPanel('effects') },
+  { t: 'Change a font, size or text color', k: 'text font size color bold', kind: 'guide', steps: [['#frameBox', 'Click the text.'], ['#dock', 'Open the Character panel. Pick a font, size, weight and color.']], run: () => showPanel('character') },
+  { t: 'Edit the words', k: 'text words type edit change', kind: 'tip', tip: 'Double-click text on the page and type. Click outside or press Esc when you’re done.', key: 'Enter' },
+  { t: 'Move something anywhere', k: 'move drag position free place', kind: 'tip', tip: 'Drag it. The first drag pins it and its neighbors in place so nothing jumps. Arrow keys nudge 1px, Shift + arrow 10px.' },
+  { t: 'Free-place everything on this page', k: 'move free place page', kind: 'do', run: () => freeWholePage() },
+  { t: 'Select several things', k: 'multi select several', kind: 'tip', tip: 'Shift-click each one, or drag a box around them starting on an empty spot.' },
+  { t: 'Line things up', k: 'align line up center even space distribute', kind: 'guide', steps: [['#frameBox', 'Select two or more things (Shift-click).'], ['#optbar', 'Use the align buttons in the bar along the top. With one thing selected they line it up inside what it’s in.']] },
+  { t: 'Center it', k: 'align center middle', kind: 'do', needs: 'sel', run: () => alignSel('center') },
+  { t: 'Lock something so it can’t change', k: 'lock protect', kind: 'do', needs: 'sel', run: () => toggleLock(S.sel), key: 'Ctrl/⌘ L' },
+  { t: 'Hide something', k: 'hide vanish invisible', kind: 'tip', tip: 'In Layers, the eye hides it on the site too. The ghost only hides it while you edit.' },
+  { t: 'Change how it looks on phones', k: 'phone tablet mobile size screen', kind: 'guide', steps: [['#deviceSeg', 'Switch to Phone (or Tablet) up here.'], ['#frameBox', 'Now anything you change only applies to that screen size.']] },
+  { t: 'Add a countdown', k: 'countdown timer date', kind: 'do', run: () => insertCenter('countdown') },
+  { t: 'Add a pop-up', k: 'popup modal', kind: 'guide', steps: [['#frameBox', 'Right-click a box and choose Turn into → Pop-up.'], ['#frameBox', 'Select the button that should open it.'], ['#dock', 'In Properties → Link, pick Pop-up and choose it.']] },
+  { t: 'Animate something step by step', k: 'motion timeline animate steps', kind: 'do', needs: 'sel', run: () => runCmd('toggleTimeline') },
+  { t: 'Spin, fade or float', k: 'motion spin fade float pulse', kind: 'do', needs: 'sel', run: () => { S.openSecs.add('motion'); showPanel('properties'); } },
+  { t: 'Change a team color everywhere', k: 'color team kit', kind: 'do', run: () => showPanel('kit') },
+  { t: 'Add a team font', k: 'font team add google', kind: 'do', run: () => addFontModal() },
+  { t: 'Edit the competition schedule', k: 'data schedule dates list', kind: 'do', run: () => showPanel('data') },
+  { t: 'Find missing images and broken links', k: 'missing broken check image link', kind: 'do', run: () => runChecks() },
+  { t: 'Undo a mistake', k: 'undo history back', kind: 'tip', tip: 'Ctrl/⌘ Z undoes. The History panel lets you jump back several steps at once.', key: 'Ctrl/⌘ Z', run: () => showPanel('history') },
+  { t: 'Put the site online', k: 'download publish upload live', kind: 'guide', steps: [['[data-cmd="download"]', 'Click Download. You’ll see every change in plain words.'], ['#modal', 'Download the ZIP, then upload what’s inside to your site host (for GitHub Pages: drag the files into the repo and commit).']], run: () => openDownload() },
+  { t: 'Zoom in and out', k: 'zoom', kind: 'tip', tip: 'Ctrl/⌘ + scroll zooms toward your mouse. Ctrl/⌘ 0 fits the page; Ctrl/⌘ 1 is actual size. Hold Space and drag to pan.' },
+  { t: 'Keyboard shortcuts', k: 'shortcut keys keyboard', kind: 'do', run: () => openShortcuts() },
+  { t: 'Take the 1-minute tour', k: 'tour start begin new help', kind: 'guide', steps: [
+    ['#tools', 'Tools live here. Hover one to see its name and key. A small triangle means more tools are tucked behind it.'],
+    ['#frameBox', 'This is your page. Click to select, drag to move, double-click text to type, right-click for more.'],
+    ['#optbar', 'This bar changes with what you’ve selected: size, position, align and more.'],
+    ['#dock', 'Panels: Properties, Character, Effects, Layers and more. Drag tabs to rearrange them.'],
+    ['#deviceSeg', 'Switch to Tablet or Phone to change how the page looks on smaller screens.'],
+    ['[data-cmd="download"]', 'When you’re done, Download gives you the updated files to put online.'],
+    ['#helpInput', 'Stuck? Type a question here anytime, or press Ctrl/⌘ F.']] }
+];
+function helpWords(q) { return q.toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').split(/\s+/).filter(w => w.length > 1 && !['how', 'do', 'the', 'to', 'an', 'my', 'it', 'is', 'can', 'what', 'why', 'on', 'of', 'in', 'and', 'or', 'make', 'get', 'with'].includes(w)).map(w => SYN[w] || w); }
+function near(a, b) { if (a === b) return true; if (a.length < 4 || Math.abs(a.length - b.length) > 1) return false; let i = 0, j = 0, e = 0; while (i < a.length && j < b.length) { if (a[i] === b[j]) { i++; j++; continue; } if (++e > 1) return false; if (a.length > b.length) i++; else if (b.length > a.length) j++; else { i++; j++; } } return e + (a.length - i) + (b.length - j) <= 1; }
+function searchHelp(q) {
+  const ws = helpWords(q); if (!ws.length) return HELP.slice(0, 6);
+  return HELP.map(h => { const words = (h.t + ' ' + h.k).toLowerCase().split(/[^a-z0-9-]+/).map(w => SYN[w] || w); let sc = 0; for (const w of ws) { if (words.includes(w)) sc += 3; else if (words.some(x => x.startsWith(w) || near(w, x))) sc += 1; } return [sc, h]; })
+    .filter(x => x[0] > 0).sort((a, b) => b[0] - a[0]).slice(0, 7).map(x => x[1]);
+}
+function openHelp() { const i = $('#helpInput'); i.focus(); i.select(); showHelpResults(i.value); }
+function closeHelp() { const r = $('#helpResults'); if (!r || r.hidden) return false; r.hidden = true; return true; }
+function showHelpResults(q) {
+  const box = $('#helpResults'), res = searchHelp(q);
+  box.innerHTML = res.length ? res.map((h, i) => `<div class="help-item"><div class="help-t">${icon(h.kind === 'do' ? I.chev : h.kind === 'guide' ? I.help : I.text)}<span>${esc(h.t)}</span>${h.key ? `<kbd>${esc(h.key)}</kbd>` : ''}</div>
+    ${h.tip ? `<p class="hint">${esc(h.tip)}</p>` : ''}
+    <div class="help-a">${h.run && h.kind !== 'tip' || h.kind === 'do' ? `<button class="btn btn-primary" data-hrun="${i}">${h.kind === 'do' ? 'Do it' : 'Open it'}</button>` : ''}${h.steps ? `<button class="btn" data-hshow="${i}">Show me</button>` : ''}${h.kind === 'tip' && h.run ? `<button class="btn" data-hrun="${i}">Open it</button>` : ''}</div></div>`).join('')
+    : `<p class="panel-note">Nothing matched “${esc(q)}”. Try other words, like “photo”, “menu” or “link”. Help → All guides lists everything.</p>`;
+  box.hidden = false;
+  $$('[data-hrun]', box).forEach(b => b.onclick = () => { const h = res[+b.dataset.hrun]; if (h.needs === 'sel' && !S.sel) { toast('Select something on the page first, then try again'); return; } closeHelp(); h.run(); });
+  $$('[data-hshow]', box).forEach(b => b.onclick = () => { closeHelp(); runGuide(res[+b.dataset.hshow]); });
+}
+$('#helpInput').addEventListener('input', e => showHelpResults(e.target.value));
+$('#helpInput').addEventListener('focus', e => showHelpResults(e.target.value));
+$('#helpInput').addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Escape') { closeHelp(); e.target.blur(); } if (e.key === 'Enter') { const b = $('#helpResults [data-hrun], #helpResults [data-hshow]'); if (b) b.click(); } });
+document.addEventListener('mousedown', e => { if (!e.target.closest('.help-box')) closeHelp(); });
+/* "Show me": points at the real button for each step */
+function runGuide(h) {
+  let i = 0;
+  const hl = document.createElement('div'), tip = document.createElement('div');
+  hl.className = 'guide-hl'; tip.className = 'guide-tip'; tip.setAttribute('role', 'dialog'); tip.setAttribute('aria-label', h.t);
+  document.body.append(hl, tip);
+  const end = () => { hl.remove(); tip.remove(); };
+  const show = () => {
+    const [sel, text] = h.steps[i], t = $(sel) || $('#frameBox'), r = t.getBoundingClientRect();
+    Object.assign(hl.style, { left: r.left - 4 + 'px', top: r.top - 4 + 'px', width: r.width + 8 + 'px', height: r.height + 8 + 'px' });
+    tip.innerHTML = `<span class="hint">${esc(h.t)} · ${i + 1} of ${h.steps.length}</span><p>${esc(text)}</p><div class="help-a">${i ? '<button class="btn" data-g="back">Back</button>' : ''}<span class="spacer"></span><button class="btn" data-g="end">Close</button><button class="btn btn-primary" data-g="next">${i === h.steps.length - 1 ? 'Done' : 'Next'}</button></div>`;
+    const below = r.bottom + 180 < innerHeight;
+    tip.style.left = Math.max(12, Math.min(r.left, innerWidth - 340)) + 'px';
+    tip.style.top = (below ? r.bottom + 12 : Math.max(12, r.top - tip.offsetHeight - 12)) + 'px';
+    if (r.height > innerHeight * 0.6) tip.style.top = (r.top + 24) + 'px';
+    $('[data-g="next"]', tip).onclick = () => { if (++i >= h.steps.length) end(); else show(); };
+    $('[data-g="end"]', tip).onclick = end;
+    const bk = $('[data-g="back"]', tip); if (bk) bk.onclick = () => { i--; show(); };
+  };
+  show();
+}
+function openShortcuts() {
+  const K = [['Select / Select group', 'V / A'], ['Rectangle / Ellipse / Line', 'M / U / L'], ['Text', 'T'], ['Photo frame', 'F'], ['Image', 'I'], ['Pivot point', 'O'], ['Hand / Zoom', 'H / Z'],
+    ['Pan', 'Hold Space and drag'], ['Zoom toward the mouse', 'Ctrl/⌘ + scroll'], ['Fit / Actual size', 'Ctrl/⌘ 0 / Ctrl/⌘ 1'], ['Undo / Redo', 'Ctrl/⌘ Z / Shift Ctrl/⌘ Z'], ['Duplicate', 'Ctrl/⌘ D'],
+    ['Delete', 'Delete'], ['Edit the words', 'Enter'], ['Nudge', 'Arrow keys (Shift = 10px)'], ['Add to selection', 'Shift-click'], ['Lock', 'Ctrl/⌘ L'], ['Bring forward / to front', 'Ctrl/⌘ ] / Shift Ctrl/⌘ ]'],
+    ['Send backward / to back', 'Ctrl/⌘ [ / Shift Ctrl/⌘ ['], ['Preview', 'P'], ['Search help', 'Ctrl/⌘ F or F1'], ['Download', 'Ctrl/⌘ S'], ['Done typing or cropping', 'Esc']];
+  modal('Keyboard shortcuts', `<div class="kb">${K.map(([a, b]) => `<div class="row"><span>${esc(a)}</span><kbd>${esc(b)}</kbd></div>`).join('')}</div>`, [['Close']]);
+}
+function openAllGuides() {
+  modal('All guides', `<div class="list">${HELP.map((h, i) => `<button class="item" data-gi="${i}">${esc(h.t)}</button>`).join('')}</div>`, [['Close']]);
+  $$('[data-gi]').forEach(b => b.onclick = () => { closeModal(); const h = HELP[+b.dataset.gi]; if (h.steps) runGuide(h); else if (h.run) h.run(); else toast(h.tip, 6000); });
+}
+
+/* ============ Media panel (dockable) ============ */
+function renderMediaPanel(box) {
+  const imgs = mediaFiles('image');
+  box.innerHTML = `<div class="stack"><label class="btn btn-block">${icon(I.plus)}Add photos<input type="file" id="mpUp" accept="image/*" multiple hidden></label>
+    <span class="hint">Drag a photo onto the page, or click one to put it in the selected frame or image.</span></div>
+    <div class="media-grid mp">${imgs.map(p => `<button draggable="true" data-mp="${esc(p)}" title="${esc(p)}"><span class="thumb"><img src="${assetUrl(p)}" alt="" loading="lazy"></span><span class="name">${esc(pretty(p.split('/').pop()))}</span></button>`).join('') || '<p class="empty">No photos yet.</p>'}</div>`;
+  $$('[data-mp]', box).forEach(b => {
+    b.ondragstart = e => { e.dataTransfer.setData('text/se-file', b.dataset.mp); e.dataTransfer.effectAllowed = 'copy'; };
+    b.onclick = () => placePhoto(b.dataset.mp, rEl(S.sel));
+  });
+  $('#mpUp', box).onchange = async e => { for (const f of [...e.target.files]) await importUpload(f); renderPanels(); };
+}
+
+/* ============ Several things selected ============ */
+function renderMultiProps(box) {
+  const n = S.multi.length;
+  box.innerHTML = `<div class="stack"><span class="h">${n} things selected</span>
+    <span class="hint">Drag any of them to move them together. Shift-click to add or remove.</span>
+    <div class="field">Line up${alignButtons()}</div>
+    <div class="grid2"><button class="btn" id="mmGroup">Group them</button><button class="btn btn-danger" id="mmDel">Delete them</button>
+      <button class="btn" id="mmLock">Lock them</button><button class="btn" id="mmClear">Deselect</button></div></div>`;
+  bindAlign(box);
+  $('#mmDel', box).onclick = deleteMulti;
+  $('#mmClear', box).onclick = () => select(null);
+  $('#mmLock', box).onclick = () => { const ids = S.multi.slice(); act(`Locked ${ids.length} things`, () => ids.forEach(id => { const s = sEl(id); if (s) s.setAttribute('data-se-lock', 'all'); }), Q); ids.forEach(id => { const r = rEl(id); if (r) r.setAttribute('data-se-lock', 'all'); }); };
+  $('#mmGroup', box).onclick = groupMulti;
+}
+function alignButtons() {
+  const B = [['left', I.alL, 'Left edges'], ['center', I.alC, 'Centers'], ['right', I.alR, 'Right edges'], ['top', I.alT, 'Tops'], ['middle', I.alM, 'Middles'], ['bottom', I.alB, 'Bottoms'], ['distH', I.disH, 'Space evenly across'], ['distV', I.disV, 'Space evenly down']];
+  return `<div class="align-row">${B.map(([k, ic, t]) => `<button class="icon-btn" data-al="${k}" title="${t}" aria-label="${t}">${icon(ic)}</button>`).join('')}</div>`;
+}
+function bindAlign(root) { $$('[data-al]', root).forEach(b => b.onclick = () => alignSel(b.dataset.al)); }
+function groupMulti() {
+  const items = S.multi.map(rEl).filter(Boolean).map(movableOf);
+  const parent = items[0] && items[0].parentElement;
+  if (!parent || items.some(r => r.parentElement !== parent)) { toast('These are inside different boxes, so they can’t be grouped. Select things that sit side by side.'); return; }
+  const u = multiBounds(), pr = parent.getBoundingClientRect();
+  const plan = []; const seen = new Set();
+  for (const r of items) if (!isFree(r)) for (const st of planFreeze(r)) if (!seen.has(st[0])) { seen.add(st[0]); plan.push(st); }
+  const pos = items.map(r => ({ id: r.getAttribute('data-se-id'), b: r.getBoundingClientRect() }));
+  let gid;
+  act(`Grouped ${items.length} things`, () => {
+    if (plan.length) applyPlan(plan);
+    const doc = getDoc(S.page), g = doc.createElement('div'); g.setAttribute('data-se-name', 'Group');
+    const ss = pos.map(p => sEl(p.id)); ss[ss.length - 1].after(g); ss.forEach(x => g.appendChild(x)); assignIds(doc); gid = g.getAttribute('data-se-id');
+    applyOwn(g, { position: 'absolute', left: Math.round(u.left - pr.left) + 'px', top: Math.round(u.top - pr.top) + 'px', width: Math.round(u.width) + 'px', height: Math.round(u.height) + 'px', margin: '0' }, { device: 'desktop' });
+    for (const p of pos) applyOwn(sEl(p.id), { left: Math.round(p.b.left - u.left) + 'px', top: Math.round(p.b.top - u.top) + 'px' }, { device: 'desktop' });
+    return true;
+  }, { devLabel: false });
+  S.multi = []; setTimeout(() => select(gid), 150);
 }

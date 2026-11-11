@@ -1,4 +1,4 @@
-/* Site Editor v2 — modal, timeline, media, download, boot */
+/* Orbyt Designs v2 — modal, timeline, media, download, boot */
 'use strict';
 
 /* Modal helper: buttons are [label, isPrimary, onClick]; returning false keeps it open */
@@ -54,7 +54,7 @@ function tlScrub() {
 function commitTl(s, c, label) {
   c.steps.sort((a, b) => a.t - b.t);
   const json = JSON.stringify(c);
-  act(label, () => { if (c.steps.length || c.pivot !== '50% 50%') s.setAttribute('data-se-timeline', json); else s.removeAttribute('data-se-timeline'); }, { render: false, devLabel: false });
+  act(label, () => { if (c.steps.length || c.pivot !== '50% 50%') s.setAttribute('data-se-timeline', json); else s.removeAttribute('data-se-timeline'); }, Q);
   const r = rEl(S.sel); if (r) { if (s.hasAttribute('data-se-timeline')) r.setAttribute('data-se-timeline', json); else r.removeAttribute('data-se-timeline'); }
   tlScrub();
 }
@@ -227,28 +227,109 @@ function openMedia(opts = {}) {
     wide: true, footLeft: `<label class="btn">${icon(I.plus)}Add files<input type="file" id="mUpload" multiple hidden accept="${kind === 'image' ? 'image/*' : kind === 'doc' ? '.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.zip' : ''}"></label>`
   });
   draw(m);
-  $('#mUpload').onchange = e => {
+  $('#mUpload').onchange = async e => {
     const list = [...e.target.files]; if (!list.length) return;
-    const imgDir = mediaFiles('image').map(dirOf).find(Boolean) || 'images';
-    const docDir = mediaFiles('doc').map(dirOf).find(Boolean) || 'Documents';
-    const destFor = name => folder !== 'All' ? (folder === 'Top level' ? '' : folder) : IMG_EXT.test(name) ? imgDir : DOC_EXT.test(name) ? docDir : 'media';
-    act(list.length === 1 ? `Added ${list[0].name} to Media` : `Added ${list.length} files to Media`, () => {
-      for (const f of list) {
-        const clean = f.name.replace(/\s+/g, '-').replace(/[^\w.\-]/g, '');
-        const dest = destFor(clean);
-        let p = (dest ? dest + '/' : '') + clean, n = 2;
-        while (S.files.has(p)) p = p.replace(/(-\d+)?(\.[^.]+)$/, `-${n++}$2`);
-        S.files.set(p, { kind: 'blob', blob: f, type: f.type || mimeOf(p), dirty: true, isNew: true });
-        chosen = p;
-      }
-    }, { render: false, pageDirty: false, where: 'Media' });
+    for (const f of list) { const p = await importUpload(f, folder !== 'All' ? (folder === 'Top level' ? '' : folder) : null); if (p) chosen = p; }
     e.target.value = ''; draw(m);
   };
 }
 
+/* Brings one file from the computer into the site's files. Big photos are shrunk so pages
+   load fast: longest side at most 2000px. Returns the new file's path, or null. */
+const MAX_SIDE = 2000;
+async function shrinkPhoto(f) {
+  if (!/^image\/(jpeg|png|webp)$/.test(f.type)) return { blob: f, note: '' };
+  let bmp; try { bmp = await createImageBitmap(f); } catch (e) { return { blob: f, note: '' }; }
+  const big = Math.max(bmp.width, bmp.height);
+  if (big <= MAX_SIDE && f.size < 900 * 1024) return { blob: f, note: '' };
+  const k = Math.min(1, MAX_SIDE / big), c = document.createElement('canvas');
+  c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+  const type = f.type === 'image/png' ? 'image/png' : 'image/jpeg';
+  const blob = await new Promise(res => c.toBlob(res, type, 0.85));
+  if (!blob || blob.size >= f.size) return { blob: f, note: '' };
+  return { blob, note: `Shrunk ${f.name} from ${Math.round(f.size / 1024)} KB to ${Math.round(blob.size / 1024)} KB so pages load fast.` };
+}
+async function importUpload(f, folder) {
+  if (f.size > LIMITS.file) { toast(`${f.name} is too big (over ${LIMITS.file / 1048576} MB)`); return null; }
+  const clean = f.name.replace(/\s+/g, '-').replace(/[^\w.\-]/g, '').replace(/^\.+/, '') || 'file';
+  const isImg = IMG_EXT.test(clean);
+  const dest = folder != null ? folder : isImg ? (mediaFiles('image').map(dirOf).find(Boolean) || 'images') : DOC_EXT.test(clean) ? (mediaFiles('doc').map(dirOf).find(Boolean) || 'Documents') : 'media';
+  let p = cleanPath((dest ? dest + '/' : '') + clean); if (!p) return null;
+  let n = 2; while (S.files.has(p)) p = p.replace(/(-\d+)?(\.[^.]+)$/, `-${n++}$2`);
+  const { blob, note } = isImg ? await shrinkPhoto(f) : { blob: f, note: '' };
+  act(`Added ${clean} to Media`, () => { addFile(p, { kind: 'blob', blob, type: blob.type || mimeOf(p), dirty: true, isNew: true }); }, { render: false, pageDirty: false, where: 'Media', devLabel: false });
+  if (note) toast(note, 4000);
+  return p;
+}
+
+/* ============ Site check ============
+   Finds missing files, broken links, photos without descriptions, empty photo frames,
+   buttons that go nowhere, and pages without a name or search summary. */
+function runChecks(opts = {}) {
+  const missing = new Map(), items = [];
+  const add = (kind, page, el, text) => items.push({ kind, page, id: el && el.getAttribute('data-se-id'), text });
+  for (const page of allPages()) {
+    const doc = getDoc(page);
+    const refs = [];
+    for (const el of doc.querySelectorAll('[src]')) refs.push([el, el.getAttribute('src')]);
+    for (const el of doc.querySelectorAll('link[href], a[href]')) refs.push([el, el.getAttribute('href')]);
+    for (const el of doc.querySelectorAll('[srcset]')) for (const part of el.getAttribute('srcset').split(',')) refs.push([el, part.trim().split(/\s+/)[0]]);
+    for (const [el, ref] of refs) {
+      const p = resolve(page, ref);
+      if (!p || S.files.has(p) || /se-widgets\.(js|css)$/.test(p)) continue;
+      if (!missing.has(p)) missing.set(p, new Set());
+      missing.get(p).add(page);
+      if (el.tagName === 'A') add('link', page, el, `“${(el.textContent || '').trim().slice(0, 30) || 'A link'}” points to ${p}, which doesn’t exist`);
+    }
+    for (const img of doc.querySelectorAll('img:not([alt])')) add('alt', page, img, `A photo has no description for people who can’t see it (${(resolve(page, img.getAttribute('src')) || '').split('/').pop()})`);
+    for (const f of doc.querySelectorAll('.se-frame')) if (!f.querySelector(':scope > img')) add('frame', page, f, 'An empty photo frame (it won’t show on the site until it has a photo)');
+    for (const a of doc.querySelectorAll('a.se-button[href="#"]:not([data-se-open])')) add('nowhere', page, a, `“${(a.textContent || '').trim().slice(0, 30) || 'A button'}” doesn’t go anywhere yet`);
+    if (!doc.title.trim()) add('meta', page, null, 'The page has no name for the browser tab');
+    if (!doc.querySelector('meta[name="description"]')) add('meta', page, null, 'The page has no search engine summary');
+  }
+  const total = missing.size + items.length;
+  if (opts.afterImport && !total) { toast('Site check: everything looks good.', 3000); return; }
+  if (opts.count) return total;
+  const groups = [['link', 'Broken links'], ['nowhere', 'Buttons that go nowhere'], ['frame', 'Empty photo frames'], ['alt', 'Photos without a description'], ['meta', 'Page names and summaries']];
+  const miss = [...missing.entries()];
+  const html = `${opts.afterImport ? `<p>The editor read your site: ${allPages().length} pages and ${S.files.size} files. A few things need a look.</p>` : ''}
+    ${total ? '' : '<p>Everything looks good.</p>'}
+    ${miss.length ? `<div class="check-g"><span class="h">Missing files (${miss.length})</span><span class="hint">Your pages use these, but they weren’t in what you opened. Add them and they’ll be put in the right folders.</span>
+      <div class="change-list">${miss.slice(0, 40).map(([p, pages]) => `<div>${esc(p)}<small>Used on ${[...pages].map(pageName).join(', ')}</small></div>`).join('')}${miss.length > 40 ? `<div>…and ${miss.length - 40} more</div>` : ''}</div>
+      <label class="btn">${icon(I.plus)}Add missing files…<input type="file" id="ckAdd" multiple hidden></label></div>` : ''}
+    ${groups.map(([k, title]) => { const list = items.filter(i => i.kind === k); return list.length ? `<div class="check-g"><span class="h">${title} (${list.length})</span><div class="change-list">${list.slice(0, 30).map((i, n) => `<div class="row"><span>${esc(i.text)}<small>${esc(pageName(i.page))}</small></span>${i.id || k === 'meta' ? `<button class="btn" data-go="${items.indexOf(i)}">Show me</button>` : ''}</div>`).join('')}</div></div>` : ''; }).join('')}`;
+  modal(opts.afterImport ? 'Site check' : 'Check the site', html, [['Close']], { wide: true });
+  $$('[data-go]').forEach(b => b.onclick = () => { const i = items[+b.dataset.go]; closeModal(); if (S.page !== i.page) switchPage(i.page); setTimeout(() => { if (i.id) { select(i.id); const r = rEl(i.id); if (r) r.scrollIntoView({ block: 'center' }); } else select(null); }, 400); });
+  const ck = $('#ckAdd'); if (ck) ck.onchange = async () => {
+    let added = 0;
+    for (const f of [...ck.files]) {
+      const want = miss.find(([p]) => p.split('/').pop().toLowerCase() === f.name.toLowerCase()); if (!want) continue;
+      const p = cleanPath(want[0]); if (!p) continue;
+      const isImg = IMG_EXT.test(p);
+      const blob = isImg ? (await shrinkPhoto(f)).blob : f;
+      addFile(p, { kind: TEXT_EXT.test(p) ? 'text' : 'blob', text: TEXT_EXT.test(p) ? await f.text() : undefined, blob: TEXT_EXT.test(p) ? undefined : blob, type: mimeOf(p), dirty: true, isNew: true });
+      added++;
+    }
+    closeModal(); logChange(`Added ${added} missing file${added === 1 ? '' : 's'}`, 'Media'); updateCount(); scheduleSave(); renderFrame();
+    toast(added ? `Added ${added} file${added === 1 ? '' : 's'}. ${miss.length - added ? `${miss.length - added} still missing.` : 'Nothing missing now.'}` : 'None of those matched the missing file names.', 5000);
+  };
+}
+
+/* File → Remove this site from this browser: for shared computers */
+function forgetSite() {
+  modal('Remove this site from this browser?', `<p>Everything the editor saved in this browser for ${esc(S.site)} is deleted. ${S.changes.length ? `<strong>${S.changes.length} change${S.changes.length === 1 ? '' : 's'} haven’t been downloaded yet</strong> and will be lost.` : 'All your changes have been downloaded.'}</p><p class="hint">Do this when you’re done on a shared or school computer.</p>`,
+    [['Cancel'], ...(S.changes.length ? [['Download first', false, () => { setTimeout(openDownload, 50); }]] : []), ['Remove it', true, async () => {
+      clearTimeout(scheduleSave.t);
+      try { await DB.clear(); } catch (e) { /* storage blocked */ }
+      resetProject(); $('#app').hidden = true; $('#welcome').hidden = false; checkResume();
+      toast('Removed from this browser.');
+    }]]);
+}
+
 /* ============ 12. Download ============ */
 function usesWidgets(doc) { return !!doc.querySelector('.se-countdown,[data-se-motion],[data-se-timeline],[data-se-hide],[data-se-popup],[data-se-open],details[data-se-doc],[data-se-tabs]'); }
-const RUNTIME_FILE = '/* Site Editor widgets: countdowns, motion effects and timeline animations.\n   Added by Site Editor. Keep it next to your pages; the editor updates it for you. */\n(' + seRuntime.toString() + ')();\n';
+const RUNTIME_FILE = '/* Orbyt Designs widgets: countdowns, motion effects and timeline animations.\n   Added by Orbyt Designs. Keep it next to your pages; the editor updates it for you. */\n(' + seRuntime.toString() + ')();\n';
 function exportPage(p) {
   const doc = S.docs.get(p);
   if (!doc) return fileText(p);
@@ -264,12 +345,15 @@ function openDownload() {
   if (S.editing) finishTextEdit();
   const n = S.changes.length;
   const list = n ? `<div class="change-list">${S.changes.map(c => `<div>${esc(c.text)}<small>${esc(c.where)}</small></div>`).join('')}</div>` : '<p class="hint">No changes since your last download.</p>';
+  const issues = runChecks({ count: true });
   modal('Download your site', `<h2>${n ? `${n} change${n === 1 ? '' : 's'} since your last download` : 'Everything is up to date'}</h2>${list}
     <div class="radio-list"><span class="h">What to download</span>
       <label><input type="radio" name="dlScope" value="changed" ${n ? 'checked' : 'disabled'}>Just what changed</label>
       <label><input type="radio" name="dlScope" value="all" ${n ? '' : 'checked'}>The whole site</label></div>
+    ${issues ? `<div class="row box"><span>${issues} thing${issues === 1 ? '' : 's'} to look at first, like missing files or empty frames.</span><button class="btn" id="dlCheck">Review</button></div>` : ''}
     <p class="hint">You’ll get a ZIP. Upload what’s inside to wherever your site is hosted and everything lands in the right place.</p>`,
     [['Cancel'], ['Download', true, () => { doDownload($('input[name="dlScope"]:checked').value === 'all'); }]]);
+  const rv = $('#dlCheck'); if (rv) rv.onclick = () => { closeModal(); runChecks(); };
 }
 async function doDownload(all) {
   if (typeof JSZip === 'undefined') { toast('The download tool didn’t load. Check your internet connection and refresh.'); return; }
@@ -284,8 +368,8 @@ async function doDownload(all) {
   }
   if (widgets && (all || fileText('se-widgets.js') !== RUNTIME_FILE || fileText('se-widgets.css') !== SE_RUNTIME_CSS)) {
     zip.file('se-widgets.js', RUNTIME_FILE); zip.file('se-widgets.css', SE_RUNTIME_CSS); count += 2;
-    S.files.set('se-widgets.js', { kind: 'text', text: RUNTIME_FILE, type: 'text/javascript', dirty: false, isNew: false });
-    S.files.set('se-widgets.css', { kind: 'text', text: SE_RUNTIME_CSS, type: 'text/css', dirty: false, isNew: false });
+    addFile('se-widgets.js', { kind: 'text', text: RUNTIME_FILE, type: 'text/javascript', dirty: false, isNew: false });
+    addFile('se-widgets.css', { kind: 'text', text: SE_RUNTIME_CSS, type: 'text/css', dirty: false, isNew: false });
   }
   if (!count) { toast('Nothing changed yet, so there’s nothing to download'); return; }
   const blob = await zip.generateAsync({ type: 'blob' });
@@ -295,7 +379,7 @@ async function doDownload(all) {
   a.download = `${(S.site || 'site').toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${all ? 'full' : 'changes'}-${stamp}.zip`;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-  for (const [p, f] of S.files) { if (isPage(p) && S.docs.has(p)) f.text = exportPage(p); f.dirty = false; f.isNew = false; }
+  for (const [p, f] of S.files) { if (isPage(p) && S.docs.has(p)) { f.text = exportPage(p); f.v = (f.v || 0) + 1; } f.dirty = false; f.isNew = false; }
   S.changes = [];
   updateCount(); renderAll(); scheduleSave();
   toast('Downloaded. Upload what’s inside the ZIP to your site host to go live.', 5000);
@@ -325,11 +409,12 @@ function openApp(page) {
   renderDock(); renderTools();
   renderAll(); layoutFrame(); renderFrame(false);
   saveNow();
+  if (S.offerTour) { S.offerTour = false; try { localStorage.setItem('se-toured', '1'); } catch (e) { /* ignore */ } setTimeout(() => runGuide(HELP.find(h => /tour/.test(h.t))), 1600); }
 }
 async function checkResume() {
   try {
-    const p = await DB.get('project'), b = $('#resumeBtn');
-    if (p && p.files && p.files.length) { b.hidden = false; b.textContent = `Continue editing ${p.site || 'your site'}${p.changes && p.changes.length ? ` (${p.changes.length} changes not downloaded)` : ''}`; b.onclick = resumeProject; }
+    const p = await savedSiteInfo(), b = $('#resumeBtn');
+    if (p) { b.hidden = false; b.textContent = `Continue editing ${p.site || 'your site'}${p.changes ? ` (${p.changes} changes not downloaded)` : ''}`; b.onclick = resumeProject; }
     else b.hidden = true;
   } catch (e) { /* storage blocked */ }
 }
@@ -337,4 +422,5 @@ async function checkResume() {
   let t = 'dark'; try { t = localStorage.getItem('se-theme') || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'); } catch (e) { /* ignore */ }
   document.documentElement.dataset.theme = t;
   checkResume();
+  try { if (!localStorage.getItem('se-toured')) S.offerTour = true; } catch (e) { /* ignore */ }
 })();

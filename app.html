@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://oibmeboozeqdurzzufzr.supabase.co wss://oibmeboozeqdurzzufzr.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'">
+<title>Your team · Orbyt Designs</title>
+<meta name="description" content="Your Orbyt Designs team: sites, members and settings.">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;800&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<link rel="stylesheet" href="site.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <a href="index.html" class="lockup" style="--s:22px" aria-label="Orbyt Designs home" id="logo"></a>
+  <div id="teamSwitch" class="team-switch" hidden></div>
+  <div class="actions" id="account"></div>
+</div></header>
+<main class="wrap app" id="main" aria-live="polite">
+  <div class="loading" id="loading"><span class="spin" aria-hidden="true"></span>Loading your teams…</div>
+</main>
+<div id="modal" class="modal" hidden><div class="modal-card card" role="dialog" aria-modal="true" aria-labelledby="modalTitle"></div></div>
+<script src="config.js"></script>
+<script src="vendor/supabase.js"></script>
+<script src="vendor/jszip.min.js"></script>
+<script src="orbyt.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
