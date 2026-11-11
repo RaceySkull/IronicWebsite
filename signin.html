@@ -45,7 +45,7 @@ main { min-height: calc(100vh - 160px); display: flex; align-items: center; just
   $('logo').innerHTML = Orbyt.LOCKUP(22).replace(/^<span class="lockup"[^>]*>|<\/span>$/g, '');
   $('year').textContent = new Date().getFullYear();
   const next = Orbyt.safeNext(new URLSearchParams(location.search).get('next'));
-  if (!Orbyt.sb) { $('err').textContent = 'Sign-in isn’t set up yet (config.js is missing its Supabase details).'; $('err').hidden = false; $('send').disabled = true; return; }
+  if (!Orbyt.sb) { $('err').textContent = Orbyt.setupProblem() || 'Sign-in couldn’t start. Refresh the page to try again.'; $('err').hidden = false; $('send').disabled = true; return; }
   if (await Orbyt.session()) { location.replace(next); return; }
   Orbyt.sb.auth.onAuthStateChange((ev, s) => { if (s) location.replace(next); });
   const base = location.href.replace(/[^/]*$/, '');

@@ -45,7 +45,7 @@ function modal(title, html, buttons = [['Close']]) {
 /* ---------- Boot ---------- */
 (async function boot() {
   $('#logo').innerHTML = Orbyt.LOCKUP(22).replace(/^<span class="lockup"[^>]*>|<\/span>$/g, '');
-  if (!sb) { $('#main').innerHTML = '<p class="error">Sign-in isn’t set up yet. Add your Supabase details to config.js.</p>'; return; }
+  if (!sb) { $('#main').innerHTML = `<p class="error">${esc(Orbyt.setupProblem() || 'Sign-in couldn’t start. Refresh the page to try again.')}</p>`; return; }
   const s = await Orbyt.requireSession(); if (!s) return;
   A.user = s.user;
   sb.auth.onAuthStateChange((ev, sess) => { if (ev === 'SIGNED_OUT' || !sess) location.href = 'index.html'; });

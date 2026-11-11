@@ -3,6 +3,13 @@
 const Orbyt = (() => {
   const cfg = window.ORBYT_CONFIG || {};
   const sb = window.__ORBYT_TEST_CLIENT || (window.supabase && cfg.supabaseUrl ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey, { auth: { persistSession: true, detectSessionInUrl: true, flowType: 'pkce' } }) : null);
+  /* Explains exactly why sign-in can't start, or returns '' when everything loaded */
+  function setupProblem() {
+    if (!window.ORBYT_CONFIG) return 'config.js didn’t load. Make sure config.js is uploaded next to this page.';
+    if (!cfg.supabaseUrl || !cfg.supabaseKey) return 'config.js is missing the Supabase address or key.';
+    if (!window.supabase || !window.supabase.createClient) return 'The sign-in library didn’t load. Make sure the vendor folder (with supabase.js inside) is uploaded next to this page.';
+    return '';
+  }
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const MARK = (size = 30) => `<span class="mark" style="width:${size}px;height:${size}px"><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="12" rx="10" ry="4.2" fill="none" stroke="#fff" stroke-width="1.8" transform="rotate(-28 12 12)"/><circle cx="12" cy="12" r="3.6" fill="#fff"/></svg></span>`;
   const LOCKUP = (size = 26) => `<span class="lockup" style="--s:${size}px">${MARK(Math.round(size * 1.35))}<span class="words"><span class="w1">ORBYT</span><span class="w2">DESIGNS</span></span></span>`;
@@ -36,5 +43,5 @@ const Orbyt = (() => {
   const COLORS = ['#CA374D', '#3FB27F', '#4C8DFF', '#E8A33D', '#B48CFF', '#2EC4C4', '#F07A8C', '#9BC53D'];
   const colorFor = id => { let h = 0; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return COLORS[h % COLORS.length]; };
   const initials = n => (String(n || '?').trim().split(/\s+/).map(w => w[0]).join('').slice(0, 2) || '?').toUpperCase();
-  return { sb, esc, MARK, LOCKUP, safeNext, session, requireSession, toast, errText, colorFor, initials };
+  return { sb, setupProblem, esc, MARK, LOCKUP, safeNext, session, requireSession, toast, errText, colorFor, initials };
 })();
