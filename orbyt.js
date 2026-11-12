@@ -7,7 +7,7 @@ const Orbyt = (() => {
   function setupProblem() {
     if (!window.ORBYT_CONFIG) return 'config.js didn’t load. Make sure config.js is uploaded next to this page.';
     if (!cfg.supabaseUrl || !cfg.supabaseKey) return 'config.js is missing the Supabase address or key.';
-    if (!window.supabase || !window.supabase.createClient) return 'The sign-in library didn’t load. Make sure the vendor folder (with supabase.js inside) is uploaded next to this page.';
+    if (!window.supabase || !window.supabase.createClient) return 'The sign-in library didn’t load. Make sure the lib folder (with supabase.js inside) is uploaded next to this page, along with the .nojekyll file.';
     return '';
   }
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

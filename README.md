@@ -16,7 +16,7 @@ The website editor your whole team builds with.
 | `config.js` | Your Supabase project address and public key |
 | `supabase.sql` | Database setup (run once) |
 | `orbyt.js`, `site.css` | Shared helpers and brand styles |
-| `vendor/` | Bundled libraries (Supabase, JSZip) so nothing loads from outside sites |
+| `lib/` | Bundled libraries (Supabase, JSZip) so nothing loads from outside sites |
 | `favicon.svg`, `og-image.png` | Tab icon and the picture shown when the link is shared |
 
 ## One-time setup (about 10 minutes)
@@ -27,6 +27,7 @@ The website editor your whole team builds with.
 3. It should finish with "Success. No rows returned." You can run it again later; it only adds what's missing.
 
 ### 2. Put the site online
+Make sure the hidden `.nojekyll` file gets uploaded too. It tells GitHub Pages to publish every file exactly as is.
 1. Make a new GitHub repo, for example `orbyt`.
 2. Upload everything in this folder (not the folder itself) and commit.
 3. **Settings → Pages:** Source "Deploy from a branch," branch `main`, folder `/ (root)`. Save.
