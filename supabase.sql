@@ -303,3 +303,19 @@ revoke execute on function public.create_team(text, text), public.accept_invite(
 grant execute on function public.create_team(text, text), public.accept_invite(text), public.set_member(uuid, uuid, text, jsonb, text[]),
   public.remove_member(uuid, uuid), public.mark_downloaded(uuid), public.invite_info(text),
   public.can(uuid, text), public.is_member(uuid), public.role_in(uuid), public.site_team(uuid) to authenticated;
+
+-- ---------- Your own view of your teams (pin, archive, last opened) ----------
+alter table public.team_members add column if not exists pinned boolean not null default false;
+alter table public.team_members add column if not exists archived boolean not null default false;
+alter table public.team_members add column if not exists last_opened timestamptz;
+
+-- Only changes the caller's own row, and only these three view settings.
+create or replace function public.set_team_view(t uuid, pin boolean, arch boolean, opened boolean default false) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  update team_members set pinned = pin, archived = arch,
+    last_opened = case when opened then now() else last_opened end
+  where team_id = t and user_id = auth.uid();
+end $$;
+revoke execute on function public.set_team_view(uuid, boolean, boolean, boolean) from anon, public;
+grant execute on function public.set_team_view(uuid, boolean, boolean, boolean) to authenticated;

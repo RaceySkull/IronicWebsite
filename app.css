@@ -48,3 +48,13 @@
 .pagelist label { display: flex; gap: 8px; align-items: center; }
 .pagelist input { accent-color: var(--comet); width: 18px; height: 18px; }
 @media (max-width: 640px) { .member { grid-template-columns: 32px minmax(0, 1fr); } .member .ctl { grid-column: 2; justify-content: flex-start; } }
+.team-switch { display: flex; gap: 8px; align-items: center; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+.team-card { display: flex; flex-direction: column; gap: 16px; cursor: pointer; transition: border-color .15s ease-out; }
+.team-card:hover { border-color: var(--stardust); }
+.team-card .tname { font: 600 19px var(--brand); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.icon-btn { width: 36px; height: 36px; flex: none; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: 1px solid transparent; color: var(--dim); cursor: pointer; }
+.icon-btn:hover { border-color: var(--line); color: #fff; }
+.icon-btn.on { color: var(--comet); }
+.icon-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.icon-btn.on svg { fill: currentColor; }

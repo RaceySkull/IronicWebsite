@@ -87,7 +87,7 @@ async function showInvite(token) {
   if (error || !info) { main.innerHTML = `<div class="card" style="max-width:560px"><h1>Invite not found</h1><p class="muted">This invite link isn’t valid. Ask whoever sent it for a new one.</p><a class="btn" href="app.html">Go to your teams</a></div>`; return; }
   if (info.used || info.expired) { main.innerHTML = `<div class="card" style="max-width:560px"><h1>${info.used ? 'This invite was already used' : 'This invite has expired'}</h1><p class="muted">Ask someone on ${esc(info.team_name)} for a new link.</p><a class="btn" href="app.html">Go to your teams</a></div>`; return; }
   main.innerHTML = `<div class="card" style="max-width:560px;display:flex;flex-direction:column;gap:16px">
-    <span class="label">You’re invited</span><h1>Join ${esc(info.team_name)}${info.team_number ? ' #' + esc(info.team_number) : ''}</h1>
+    <span class="label">You’re invited</span><h1>Join ${esc(info.team_name)}${info.team_number ? ' <span class="muted">' + esc(info.team_number) + '</span>' : ''}</h1>
     <p style="margin:0">${info.invited_by ? `<strong>${esc(info.invited_by)}</strong> invited you as ` : 'You’re invited as '}<strong>${ROLE_WORDS[info.role]}</strong>. ${esc(ROLE_HELP[info.role] || '')}.</p>
     <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary" id="acc">Join the team</button><a class="btn" href="app.html">Not now</a></div>
     <p class="error" id="accErr" hidden></p></div>`;
@@ -102,55 +102,102 @@ async function showInvite(token) {
   };
 }
 
-/* ---------- Teams ---------- */
-async function loadTeams(prefer) {
-  const { data, error } = await sb.from('team_members').select('team_id, role, perms, pages, teams(id, name, number)').eq('user_id', A.user.id);
+/* ---------- Teams home ---------- */
+const TEAM_FORM = (name = '', tag = '') => `<label class="field">Team name<input class="inp" id="tn" maxlength="80" value="${esc(name)}" placeholder="e.g. Marketing, Robotics Club, Smith Family"></label>
+  <label class="field">Short tag (optional)<input class="inp" id="tnum" maxlength="20" value="${esc(tag)}" placeholder="e.g. 14226, Spring 2027, HQ"></label>`;
+async function loadTeams(open) {
+  const { data, error } = await sb.from('team_members').select('team_id, role, perms, pages, pinned, archived, last_opened, teams(id, name, number)').eq('user_id', A.user.id);
   if (error) throw error;
   A.teams = (data || []).filter(m => m.teams).map(m => ({ ...m, name: m.teams.name, number: m.teams.number }));
-  if (!A.teams.length) { renderNoTeam(); return; }
-  let last = null; try { last = localStorage.getItem('orbyt-team'); } catch (e) { /* private mode */ }
-  A.team = A.teams.find(t => t.team_id === prefer) || A.teams.find(t => t.team_id === last) || A.teams[0];
+  const ids = A.teams.map(t => t.team_id);
+  A.counts = {};
+  if (ids.length) {
+    const [{ data: mem }, { data: sites }] = await Promise.all([
+      sb.from('team_members').select('team_id').in('team_id', ids),
+      sb.from('sites').select('team_id').in('team_id', ids)]);
+    for (const t of ids) A.counts[t] = { members: (mem || []).filter(r => r.team_id === t).length, sites: (sites || []).filter(r => r.team_id === t).length };
+  }
+  const t = open && A.teams.find(x => x.team_id === open);
+  if (t) openTeam(t); else renderHome();
+}
+function setUrl(team) { history.replaceState(null, '', team ? 'app.html?team=' + team : 'app.html'); }
+function renderHome() {
+  A.team = null; setUrl(null); $('#teamSwitch').hidden = true;
+  let sort = 'recent', showArch = false;
+  try { sort = localStorage.getItem('orbyt-sort') || 'recent'; } catch (e) { /* ignore */ }
+  const draw = () => {
+    const list = A.teams.filter(t => !!t.archived === showArch);
+    const by = { recent: (a, b) => String(b.last_opened || '').localeCompare(String(a.last_opened || '')), name: (a, b) => a.name.localeCompare(b.name), role: (a, b) => ['owner', 'admin', 'editor', 'viewer'].indexOf(a.role) - ['owner', 'admin', 'editor', 'viewer'].indexOf(b.role) }[sort];
+    list.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || by(a, b));
+    const nArch = A.teams.filter(t => t.archived).length;
+    $('#main').innerHTML = `<div class="head"><div><span class="label">Home</span><h1>${showArch ? 'Archived teams' : 'Your teams'}</h1></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="join">Join a team</button><button class="btn btn-primary" id="mkTeam">New team</button></div></div>
+      ${A.teams.length ? `<div class="toolbar"><label class="field" style="flex-direction:row;align-items:center;gap:8px">Sort<select class="inp" id="sortSel" style="width:auto;min-height:36px">
+        <option value="recent" ${sort === 'recent' ? 'selected' : ''}>Recently opened</option><option value="name" ${sort === 'name' ? 'selected' : ''}>Name</option><option value="role" ${sort === 'role' ? 'selected' : ''}>My role</option></select></label>
+        ${nArch || showArch ? `<button class="btn btn-small" id="archToggle">${showArch ? 'Back to your teams' : `Archived (${nArch})`}</button>` : ''}</div>` : ''}
+      ${list.length ? `<div class="grid">${list.map(t => { const c = A.counts[t.team_id] || { members: 0, sites: 0 }; return `<div class="card team-card" data-open="${t.team_id}" tabindex="0" role="button" aria-label="Open ${esc(t.name)}">
+        <div style="display:flex;align-items:flex-start;gap:12px">${avatar(t.name, t.team_id, 44)}<div style="flex:1;min-width:0"><strong class="tname">${esc(t.name)}</strong>${t.number ? `<div class="muted" style="font-size:14px">${esc(t.number)}</div>` : ''}</div>
+        <button class="icon-btn ${t.pinned ? 'on' : ''}" data-pin="${t.team_id}" aria-label="${t.pinned ? 'Unpin' : 'Pin to top'}" title="${t.pinned ? 'Unpin' : 'Pin to top'}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-1 6 4 4H6l4-4z M12 13v8"/></svg></button></div>
+        <div class="muted" style="font-size:14px">${c.sites} site${c.sites === 1 ? '' : 's'} · ${c.members} member${c.members === 1 ? '' : 's'} · ${t.last_opened ? 'opened ' + when(t.last_opened) : 'not opened yet'}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span class="tag ${t.role === 'owner' ? 'owner' : ''}">${ROLE_WORDS[t.role]}</span><button class="btn btn-small" data-arch="${t.team_id}">${t.archived ? 'Unarchive' : 'Archive'}</button></div></div>`; }).join('')}</div>`
+      : `<div class="empty">${showArch ? 'Nothing archived.' : `<strong style="color:var(--text)">You’re not on any teams yet.</strong>Make one for your group’s website, or join one with an invite link someone sent you.<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary" id="mkTeam2">Create a team</button><button class="btn" id="join2">Join with an invite link</button></div>`}</div>`}`;
+    for (const id of ['mkTeam', 'mkTeam2']) { const b = $('#' + id); if (b) b.onclick = newTeam; }
+    for (const id of ['join', 'join2']) { const b = $('#' + id); if (b) b.onclick = joinTeam; }
+    const ss = $('#sortSel'); if (ss) ss.onchange = () => { sort = ss.value; try { localStorage.setItem('orbyt-sort', sort); } catch (e) { /* ignore */ } draw(); };
+    const at = $('#archToggle'); if (at) at.onclick = () => { showArch = !showArch; draw(); };
+    $$('[data-open]').forEach(c => { const go = () => openTeam(A.teams.find(t => t.team_id === c.dataset.open)); c.onclick = go; c.onkeydown = e => { if (e.key === 'Enter') go(); }; });
+    $$('[data-pin]').forEach(b => b.onclick = async e => { e.stopPropagation(); const t = A.teams.find(x => x.team_id === b.dataset.pin); if (await savePref(t, { pinned: !t.pinned })) draw(); });
+    $$('[data-arch]').forEach(b => b.onclick = async e => { e.stopPropagation(); const t = A.teams.find(x => x.team_id === b.dataset.arch); if (await savePref(t, { archived: !t.archived, pinned: t.archived ? t.pinned : false })) { toast(t.archived ? `${t.name} archived. Find it under Archived.` : `${t.name} is back`); draw(); } });
+  };
+  draw();
+}
+/* Pin, archive and last-opened are your own view; they don't change the team for anyone else */
+async function savePref(t, patch) {
+  const next = { pinned: t.pinned, archived: t.archived, ...patch };
+  const { error } = await sb.rpc('set_team_view', { t: t.team_id, pin: !!next.pinned, arch: !!next.archived, opened: !!patch.opened });
+  if (error) { toast(errText(error), 5000); return false; }
+  t.pinned = !!next.pinned; t.archived = !!next.archived; if (patch.opened) t.last_opened = new Date().toISOString();
+  return true;
+}
+function openTeam(t) {
+  A.team = t; A.tab = 'sites'; setUrl(t.team_id);
+  savePref(t, { opened: true });
   renderSwitch(); renderTeam();
 }
 function renderSwitch() {
-  const box = $('#teamSwitch'); box.hidden = A.teams.length < 1;
-  box.innerHTML = `<select id="teamSel" aria-label="Team">${A.teams.map(t => `<option value="${t.team_id}" ${t === A.team ? 'selected' : ''}>${esc(t.name)}${t.number ? ' #' + esc(t.number) : ''}</option>`).join('')}<option value="__new">+ New team…</option></select>`;
-  $('#teamSel').onchange = e => { if (e.target.value === '__new') { e.target.value = A.team.team_id; newTeam(); return; } A.team = A.teams.find(t => t.team_id === e.target.value); renderTeam(); };
-}
-function renderNoTeam() {
-  $('#teamSwitch').hidden = true;
-  $('#main').innerHTML = `<div class="card" style="max-width:560px;display:flex;flex-direction:column;gap:16px">
-    <span class="label">Welcome</span><h1>Set up your team</h1>
-    <p class="muted" style="margin:0">Make a team for your site. You’ll be its owner and can invite everyone else.</p>
-    <label class="field">Team name<input class="inp" id="tn" maxlength="80" placeholder="e.g. Team IRONIC"></label>
-    <label class="field">Team number (optional)<input class="inp" id="tnum" maxlength="20" placeholder="e.g. 14226"></label>
-    <button class="btn btn-primary" id="mk">Create team</button>
-    <p class="muted" style="margin:0;font-size:14px">Joining someone else’s team? Open the invite link they sent you.</p></div>`;
-  $('#mk').onclick = async () => {
-    const name = $('#tn').value.trim(); if (!name) { toast('Give your team a name'); return; }
-    $('#mk').disabled = true;
-    const { data: tid, error } = await sb.rpc('create_team', { team_name: name, team_number: $('#tnum').value.trim() || null });
-    if (error) { toast(errText(error), 5000); $('#mk').disabled = false; return; }
-    await loadTeams(tid);
-    if (!A.profile.display_name || A.profile.display_name === (A.user.email || '').split('@')[0]) editName(true);
-  };
+  const box = $('#teamSwitch'); box.hidden = false;
+  const live = A.teams.filter(t => !t.archived || t === A.team);
+  box.innerHTML = `<a class="btn btn-small" href="app.html" id="homeBtn">← All teams</a><select id="teamSel" aria-label="Switch team">${live.map(t => `<option value="${t.team_id}" ${t === A.team ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select>`;
+  $('#homeBtn').onclick = e => { e.preventDefault(); loadTeams(); };
+  $('#teamSel').onchange = e => openTeam(A.teams.find(t => t.team_id === e.target.value));
 }
 function newTeam() {
-  modal('New team', `<label class="field">Team name<input class="inp" id="tn" maxlength="80"></label><label class="field">Team number (optional)<input class="inp" id="tnum" maxlength="20"></label>`,
+  modal('New team', TEAM_FORM() + '<p class="muted" style="margin:0;font-size:14px">You’ll be the owner. Next, add your site and invite people.</p>',
     [['Cancel'], ['Create team', true, async c => {
       const name = $('#tn', c).value.trim(); if (!name) { toast('Give your team a name'); return false; }
       const { data: tid, error } = await sb.rpc('create_team', { team_name: name, team_number: $('#tnum', c).value.trim() || null });
-      if (error) throw error; await loadTeams(tid);
+      if (error) throw error;
+      await loadTeams(tid);
+      if (!A.profile.display_name || A.profile.display_name === (A.user.email || '').split('@')[0]) editName(true);
+    }]]);
+}
+function joinTeam() {
+  modal('Join a team', `<label class="field">Paste the invite link someone sent you<input class="inp" id="jl" placeholder="…/app.html?invite=…"></label><p class="muted" style="margin:0;font-size:14px">Don’t have one? Ask someone on the team to send you an invite from their Members tab.</p>`,
+    [['Cancel'], ['Continue', true, async c => {
+      const m = $('#jl', c).value.trim().match(/([a-f0-9]{16,64})\s*$/i);
+      if (!m) { toast('That doesn’t look like an invite link'); return false; }
+      await showInvite(m[1]);
     }]]);
 }
 function renderTeam() {
   try { localStorage.setItem('orbyt-team', A.team.team_id); } catch (e) { /* ignore */ }
   const t = A.team;
   const tabs = [['sites', 'Sites'], ['members', 'Members'], ['settings', 'Settings']];
-  $('#main').innerHTML = `<div class="head"><div><span class="label">Team</span><h1>${esc(t.name)}${t.number ? ' <span class="muted">#' + esc(t.number) + '</span>' : ''}</h1></div><span class="tag ${t.role === 'owner' ? 'owner' : ''}">You’re ${ROLE_A[t.role]}</span></div>
+  $('#main').innerHTML = `<div class="head"><div><span class="label">Team</span><h1>${esc(t.name)}${t.number ? ' <span class="muted">' + esc(t.number) + '</span>' : ''}</h1></div><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="tag ${t.role === 'owner' ? 'owner' : ''}">You’re ${ROLE_A[t.role]}</span>${can(t, 'invite') ? '<button class="btn btn-primary btn-small" id="invTop">Invite people</button>' : ''}</div></div>
     <div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" aria-selected="${A.tab === k}" class="${A.tab === k ? 'on' : ''}" data-tab="${k}">${l}</button>`).join('')}</div>
     <div id="tabBody"><div class="loading"><span class="spin" aria-hidden="true"></span>Loading…</div></div>`;
   $$('[data-tab]').forEach(b => b.onclick = () => { A.tab = b.dataset.tab; renderTeam(); });
+  const it = $('#invTop'); if (it) it.onclick = () => { A.tab = 'members'; renderTeam(); setTimeout(() => { const f = $('#ie'); if (f) f.focus(); }, 400); };
   ({ sites: renderSites, members: renderMembers, settings: renderSettings })[A.tab]().catch(e => { $('#tabBody').innerHTML = `<p class="error">${esc(errText(e))}</p>`; });
 }
 
@@ -339,7 +386,7 @@ async function renderSettings() {
   $('#tabBody').innerHTML = `<div style="display:flex;flex-direction:column;gap:24px;max-width:640px">
     ${can(t, 'roles') ? `<div class="card" style="display:flex;flex-direction:column;gap:16px"><h2>Team details</h2>
       <label class="field">Team name<input class="inp" id="stn" maxlength="80" value="${esc(t.name)}"></label>
-      <label class="field">Team number<input class="inp" id="stnum" maxlength="20" value="${esc(t.number || '')}"></label>
+      <label class="field">Short tag<input class="inp" id="stnum" maxlength="20" value="${esc(t.number || '')}"></label>
       <button class="btn btn-primary" id="saveTeam" style="align-self:flex-start">Save</button></div>` : ''}
     ${t.role !== 'owner' ? `<div class="card" style="display:flex;flex-direction:column;gap:12px"><h2>Leave this team</h2><p class="muted" style="margin:0">You’ll lose access to its sites. Someone can invite you back later.</p><button class="btn btn-danger" id="leave" style="align-self:flex-start">Leave ${esc(t.name)}</button></div>` : ''}
     ${can(t, 'delete_team') ? `<div class="card danger-zone" style="display:flex;flex-direction:column;gap:12px"><h2>Delete this team</h2><p class="muted" style="margin:0">Deletes the team, its sites and files from Orbyt for everyone. Your live websites aren’t touched.</p><button class="btn btn-danger" id="delTeam" style="align-self:flex-start">Delete ${esc(t.name)}</button></div>` : ''}
@@ -348,12 +395,12 @@ async function renderSettings() {
     const name = $('#stn').value.trim(); if (!name) { toast('The team needs a name'); return; }
     const { error } = await sb.from('teams').update({ name, number: $('#stnum').value.trim() || null }).eq('id', t.team_id);
     if (error) { toast(errText(error)); return; }
-    toast('Saved'); await loadTeams(t.team_id);
+    toast('Saved'); t.name = name; t.number = $('#stnum').value.trim() || null; renderSwitch(); renderTeam();
   };
   const lv = $('#leave'); if (lv) lv.onclick = () => modal(`Leave ${t.name}?`, '<p style="margin:0">You’ll lose access right away.</p>', [['Cancel'], ['Leave', true, async () => {
     const { error } = await sb.rpc('remove_member', { t: t.team_id, member: A.user.id }); if (error) throw error;
     try { localStorage.removeItem('orbyt-team'); } catch (e) { /* ignore */ }
-    A.tab = 'sites'; await loadTeams();
+    A.tab = 'sites'; await loadTeams(null);
   }]]);
   const dt = $('#delTeam'); if (dt) dt.onclick = () => modal('Delete this team?', `<p style="margin:0">This can’t be undone.</p><label class="field">Type <strong>${esc(t.name)}</strong> to confirm<input class="inp" id="cf"></label>`, [['Cancel'], ['Delete team', true, async c => {
     if ($('#cf', c).value.trim() !== t.name) { toast('The name doesn’t match'); return false; }
